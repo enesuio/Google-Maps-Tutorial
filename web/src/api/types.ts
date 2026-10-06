@@ -182,3 +182,44 @@ export type PhotoKind = "start" | "progress" | "end";
 export interface Photo { id: number; date: string; kind: PhotoKind; mime: string; bytes: number;
                          width: number | null; height: number | null; createdAt: string; url: string } // url = /api/photos/:id/file
 export interface PhotosView { photos: Photo[] }  // newest first
+
+// ---- Phase 4 additions (T15–T16), copied verbatim from docs/API.md ----
+
+export interface FinishTest { id: number; userId: number; key: string; label: string;
+                              passed: boolean | null; result: string | null; testedOn: string | null }
+export interface PutFinishTestBody { passed: boolean | null; result?: string | null; testedOn?: string | null }
+export interface PostFinishTestBody { label: string }   // key derived: slug of label + short random suffix
+
+export interface GoalSummary {
+  goalId: number; label: string; kind: GoalKind; unit: string | null; source: GoalSource;
+  dailyTarget: number | null; weeklyTarget: number | null;
+  enteredDays: number; hitDays: number;
+  average: number | null;          // number goals: mean of entered values
+  weeklyHits: { weeks: number; weeksHit: number; total: number } | null; // weekly goals: weeks with count ≥ target
+}
+/** One row of body numbers (the contract's `{ same shape }`), caller only. */
+export interface BodyNumbers {
+  date: string; weightKg: number | null; waistCm: number | null; hipsCm: number | null; chestCm: number | null; armCm: number | null; thighCm: number | null;
+}
+export interface BodySummary {      // caller only; null for the partner
+  start: BodyNumbers | null;
+  latest: BodyNumbers | null;
+  change: { weightKg: number | null; waistCm: number | null; hipsCm: number | null; chestCm: number | null; armCm: number | null; thighCm: number | null } | null;
+}
+export interface UserSummary {
+  userId: number; name: string; isMe: boolean;
+  daysCheckedIn: number; daysSoFar: number;   // daysSoFar = min(day, lengthDays), 0 before start
+  goalsHit: number; goalsTotal: number;        // over active goals × daysSoFar
+  bestStreak: number; currentStreak: number;
+  cheersSent: number; cheersReceived: number; topEmojiReceived: string | null;
+  steps: { total: number | null; avgPerDay: number | null; bestDay: { date: string; steps: number } | null };
+  goals: GoalSummary[];
+  body: BodySummary | null;
+  photos: { start: Photo | null; end: Photo | null } | null;  // caller only
+  finishTests: FinishTest[];                                  // both users' tests are visible
+}
+export interface SummaryView {
+  challenge: Challenge; today: string; day: number; endDate: string; complete: boolean;
+  team: { checkins: number; possible: number; cheers: number; bestWeek: { weekStart: string; checkins: number } | null };
+  users: UserSummary[];   // me first
+}

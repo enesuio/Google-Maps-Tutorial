@@ -124,8 +124,8 @@ Work rules for agents: TypeScript strict, every endpoint validated with zod, mig
 - [x] **T12 Weekly recap.** Sunday 7 pm job that builds and pushes each person's week.
 - [x] **T13 Milestones.** Days 7, 15, 30 and 45, plus the team ring.
 - [x] **T14 Photos and measurements.** Upload to disk, private by default.
-- [ ] **T15 Day 45 summary.** Start vs end numbers, totals, best streaks, cheers sent.
-- [ ] **T16 Export.** JSON and CSV download of all data.
+- [x] **T15 Day 45 summary.** Start vs end numbers, totals, best streaks, cheers sent.
+- [x] **T16 Export.** JSON and CSV download of all data.
 
 ## Risks and open questions
 

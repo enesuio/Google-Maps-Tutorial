@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { Cheer, DayView } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { HealthSection } from '../components/HealthSection';
 import { NotificationsSection } from '../components/NotificationsSection';
@@ -235,7 +234,6 @@ export function DayScreen({ mode }: Props) {
           </div>
         )}
       </main>
-      <Footer current={routeDate === null ? 'today' : 'day'} />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </div>
   );

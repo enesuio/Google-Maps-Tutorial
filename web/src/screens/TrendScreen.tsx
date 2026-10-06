@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { api, ApiError, describeError } from '../api/client';
 import type { Measurements, MetricPoint, MetricsSeries, MetricsView, PutMetricsBody } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
 import { WeightChart } from '../components/WeightChart';
@@ -245,7 +244,6 @@ export function TrendScreen() {
           </div>
         )}
       </main>
-      <Footer current="trend" />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </div>
   );

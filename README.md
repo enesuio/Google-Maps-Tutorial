@@ -57,6 +57,6 @@ scripts/      backup and restore helpers
 | 1. v1 | login, day counter, check-in, shared today screen, history with backfill | built |
 | 2. Habit loop | PWA, push reminders, cheers, forgiving streaks, weight trend | built |
 | 3. Delight | Apple Health import, weekly recap, milestones and team ring, private photos and measurements | built |
-| 4. Finish | Day 45 summary, data export | next |
+| 4. Finish | Day 45 summary with finish-line tests, JSON/CSV export | built |
 
 T5 (deploy to the homelab) is yours; see `docs/DEPLOY.md`. Apple Health setup: `docs/HEALTH-IMPORT.md`.

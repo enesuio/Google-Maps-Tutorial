@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { TeamView } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 
 /**
@@ -119,7 +118,6 @@ export function HealthSetupScreen() {
           </Link>
         </p>
       </main>
-      <Footer current="other" />
     </div>
   );
 }

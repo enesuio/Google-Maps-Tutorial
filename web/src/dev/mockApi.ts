@@ -1,8 +1,12 @@
 // Dev-only in-memory API, enabled with `VITE_MOCK_API=1 pnpm --filter web dev`.
 // Never imported in production builds (see main.tsx).
 import type {
+  BodyNumbers,
+  BodySummary,
   Cheer,
   DayView,
+  FinishTest,
+  GoalSummary,
   GoalView,
   HealthDay,
   HistoryDay,
@@ -17,23 +21,27 @@ import type {
   PhotoKind,
   PhotosView,
   PostCheerBody,
+  PostFinishTestBody,
   PushStatus,
   PushSubscriptionBody,
   PutCheckinsBody,
+  PutFinishTestBody,
   PutMetricsBody,
   PutMetricsSharingBody,
   RecapView,
   Streak,
+  SummaryView,
   TeamView,
   UserDayView,
   UserRecap,
+  UserSummary,
 } from '../api/types';
 import { CHEER_EMOJI } from '../api/types';
 import { addDays, daysBetween, isValidISODate, weekdayIndex } from '../lib/dates';
 import { avg7 } from '../lib/chart';
 import { computeHit } from '../lib/goals';
 
-const MOCK_MARKER = 'hx-mock-api-v3'; // grep target: must not appear in dist/
+const MOCK_MARKER = 'hx-mock-api-v4'; // grep target: must not appear in dist/
 
 const challenge = { name: 'Hydrox 45', startDate: '2026-10-06', lengthDays: 45 };
 let today = '2026-10-15'; // Day 10
@@ -103,6 +111,13 @@ let photos: Photo[] = [];
 let nextPhotoId = 50;
 const PHOTO_MAX = 12 * 1024 * 1024;
 const PHOTO_MIMES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/webp']);
+
+// finish-line tests (T15): both users' tests, max 5 each
+let finishTests: FinishTest[] = [];
+let nextTestId = 20;
+const FINISH_TESTS_MAX = 5;
+/** Last date the deterministic filler has covered (see `fillThrough`). */
+let filledThrough = '2026-10-15';
 
 // push
 const pushEnabled = true;
@@ -226,9 +241,111 @@ function seed() {
   ];
   nextPhotoId = 50;
 
+  finishTests = [
+    { id: 1, userId: 2, key: 'pushups', label: '3 push-ups', passed: null, result: null, testedOn: null },
+    { id: 2, userId: 2, key: 'pullup', label: '1 pull-up', passed: null, result: null, testedOn: null },
+    { id: 3, userId: 1, key: 'pullups5', label: '5 pull-ups in a row', passed: null, result: null, testedOn: null },
+  ];
+  nextTestId = 20;
+  filledThrough = '2026-10-15';
+
   pushSubs.clear();
 }
 seed();
+
+// ---- deterministic filler so `setDay(45)` shows a realistic finished challenge ----
+
+/** Small stable hash → [0, 1). Same input, same output, so screenshots are reproducible. */
+function noise(...parts: Array<string | number>): number {
+  let h = 2166136261;
+  for (const ch of parts.join('|')) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+/**
+ * Extends the seeded story from Oct 16 up to `target` with plausible check-ins, imports,
+ * weights, cheers and (on Day 45) a finish photo and the partner's test results. Idempotent:
+ * only days after `filledThrough` are touched, so the hand-written Days 1–10 stay as they are.
+ */
+function fillThrough(target: string): void {
+  const set = (u: number, d: string, g: number, v: number) => checkins.set(key(u, d, g), v);
+  let prevMissMe = false;
+  let prevMissHer = false;
+  for (let d = addDays(filledThrough, 1); d <= target; d = addDays(d, 1)) {
+    const n = dayNumber(d);
+    const wd = weekdayIndex(d);
+    // Me: a miss roughly every 9 days, never two in a row.
+    const missMe: boolean = !prevMissMe && noise('me-miss', d) < 0.11;
+    prevMissMe = missMe;
+    if (!missMe) {
+      set(1, d, 1, noise('walk', d) < 0.9 ? 1 : 0);
+      set(1, d, 2, Math.round(1450 + noise('kcal', d) * 320));
+      set(1, d, 3, Math.round(140 + noise('prot', d) * 45));
+    }
+    // Partner: a miss roughly every 2 weeks; F45 on Mon/Wed/Fri plus the odd Saturday.
+    const missHer: boolean = !prevMissHer && noise('her-miss', d) < 0.07;
+    prevMissHer = missHer;
+    if (!missHer) {
+      const f45 = wd === 1 || wd === 3 || wd === 5 ? (noise('f45', d) < 0.9 ? 1 : 0) : wd === 6 && noise('f45sat', d) < 0.3 ? 1 : 0;
+      set(2, d, 10, f45);
+      set(2, d, 11, Math.round(1340 + noise('kcal2', d) * 300));
+      set(2, d, 12, Math.round(112 + noise('prot2', d) * 36));
+    }
+    // Health imports arrive for both almost every evening.
+    if (noise('imp1', d) < 0.95) {
+      const steps = Math.round(6200 + noise('steps1', d) * 6500);
+      health.set(mkey(1, d), { steps, activeKcal: Math.round(steps * 0.062) });
+      set(1, d, 4, steps);
+    }
+    if (noise('imp2', d) < 0.95) {
+      const steps = Math.round(5400 + noise('steps2', d) * 5200);
+      health.set(mkey(2, d), { steps, activeKcal: Math.round(steps * 0.064) });
+      set(2, d, 13, steps);
+    }
+    // Weights drift down with noise; measurements every two weeks.
+    if (noise('w1', d) < 0.85) {
+      const row = metrics.get(mkey(1, d)) ?? emptyRow();
+      row.weightKg = Math.round((92.4 - (n - 1) * 0.095 + (noise('wn1', d) - 0.5) * 0.8) * 10) / 10;
+      if (n % 14 === 1 || n === 45) {
+        row.waistCm = Math.round((101 - (n - 1) * 0.14) * 2) / 2;
+        row.hipsCm = Math.round((108 - (n - 1) * 0.07) * 2) / 2;
+        row.chestCm = Math.round((109.5 - (n - 1) * 0.05) * 2) / 2;
+        row.armCm = Math.round((36 + (n - 1) * 0.015) * 2) / 2;
+        row.thighCm = Math.round((63 - (n - 1) * 0.04) * 2) / 2;
+      }
+      metrics.set(mkey(1, d), row);
+    }
+    if (noise('w2', d) < 0.8) {
+      const row = metrics.get(mkey(2, d)) ?? emptyRow();
+      row.weightKg = Math.round((68.2 - (n - 1) * 0.045 + (noise('wn2', d) - 0.5) * 0.6) * 10) / 10;
+      metrics.set(mkey(2, d), row);
+    }
+    // Cheers: she cheers a bit more often than I do.
+    if (noise('cheer-her', d) < 0.4) {
+      cheers.push({ id: nextCheerId++, fromUserId: 2, toUserId: 1, date: d, emoji: CHEER_EMOJI[Math.floor(noise('e1', d) * CHEER_EMOJI.length)] ?? '👏', note: null, createdAt: `${d}T21:${String(10 + Math.floor(noise('m1', d) * 40)).padStart(2, '0')}:00Z` });
+    }
+    if (noise('cheer-me', d) < 0.3) {
+      cheers.push({ id: nextCheerId++, fromUserId: 1, toUserId: 2, date: d, emoji: CHEER_EMOJI[Math.floor(noise('e2', d) * CHEER_EMOJI.length)] ?? '🔥', note: noise('note', d) < 0.3 ? 'Keep going' : null, createdAt: `${d}T21:${String(10 + Math.floor(noise('m2', d) * 40)).padStart(2, '0')}:30Z` });
+    }
+    // Photos: a progress shot on Day 22, the finish photo on the last day.
+    if (n === 22 && !photos.some((p) => p.date === d)) {
+      photos = [{ id: nextPhotoId++, date: d, kind: 'progress', mime: 'image/jpeg', bytes: 2_512_004, width: 3024, height: 4032, createdAt: `${d}T07:10:00Z`, url: placeholderPhoto('Day 22', 190, 0.9) }, ...photos];
+    }
+    if (n === challenge.lengthDays && !photos.some((p) => p.kind === 'end')) {
+      photos = [{ id: nextPhotoId++, date: d, kind: 'end', mime: 'image/jpeg', bytes: 2_401_770, width: 3024, height: 4032, createdAt: `${d}T07:20:00Z`, url: placeholderPhoto('Day 45', 120, 0.86) }, ...photos];
+      // The partner's finish-line tests, recorded on Day 45.
+      for (const t of finishTests) {
+        if (t.userId !== 2) continue;
+        if (t.key === 'pushups') Object.assign(t, { passed: true, result: '4 push-ups', testedOn: d });
+        if (t.key === 'pullup') Object.assign(t, { passed: false, result: 'Chin over the bar with a band', testedOn: d });
+      }
+    }
+  }
+  if (target > filledThrough) filledThrough = target;
+}
 
 // ---- streaks ("never miss twice"), same rules as docs/API.md ----
 function enteredOn(userId: number, date: string): boolean {
@@ -533,6 +650,264 @@ function recapView(weekParam: string | null): RecapView | Response {
   };
 }
 
+// ---- Day 45 summary (T15) ----
+
+function summaryView(): SummaryView {
+  const day = dayNumber(today);
+  const end = endDate();
+  const complete = today >= end;
+  const daysSoFar = Math.max(0, Math.min(day, challenge.lengthDays));
+  const last = today < end ? today : end;
+  const inRange = (d: string) => d >= challenge.startDate && d <= last;
+  const days: string[] = [];
+  for (let d = challenge.startDate; d <= last; d = addDays(d, 1)) days.push(d);
+
+  const perUser: UserSummary[] = orderedUsers().map((u) => {
+    const isMe = u.id === ME_ID;
+    let daysCheckedIn = 0;
+    let goalsHit = 0;
+    for (const d of days) {
+      if (enteredOn(u.id, d)) daysCheckedIn += 1;
+      for (const g of u.goals) {
+        const v = checkins.get(key(u.id, d, g.id));
+        if (v !== undefined && computeHit(g, v) === true) goalsHit += 1;
+      }
+    }
+    const streak = streakFor(u.id, last);
+    const received = cheers.filter((c) => c.toUserId === u.id && inRange(c.date));
+    const sent = cheers.filter((c) => c.fromUserId === u.id && inRange(c.date));
+    const tally = new Map<string, number>();
+    for (const c of received) tally.set(c.emoji, (tally.get(c.emoji) ?? 0) + 1);
+    let topEmojiReceived: string | null = null;
+    for (const [emoji, n] of tally) if (topEmojiReceived === null || n > (tally.get(topEmojiReceived) ?? 0)) topEmojiReceived = emoji;
+
+    let total: number | null = null;
+    let stepDays = 0;
+    let bestDay: { date: string; steps: number } | null = null;
+    for (const d of days) {
+      const h = health.get(mkey(u.id, d));
+      if (!h || h.steps === null) continue;
+      total = (total ?? 0) + h.steps;
+      stepDays += 1;
+      if (!bestDay || h.steps > bestDay.steps) bestDay = { date: d, steps: h.steps };
+    }
+
+    const goals: GoalSummary[] = u.goals.map((g) => {
+      let enteredDays = 0;
+      let hitDays = 0;
+      let sum = 0;
+      for (const d of days) {
+        const v = checkins.get(key(u.id, d, g.id));
+        if (v === undefined) continue;
+        enteredDays += 1;
+        sum += v;
+        if (computeHit(g, v) === true) hitDays += 1;
+      }
+      let weeklyHits: GoalSummary['weeklyHits'] = null;
+      if (g.weeklyTarget !== null) {
+        const mondays = new Set(days.map((d) => weekRange(d)[0] ?? d));
+        let weeksHit = 0;
+        let totalHits = 0;
+        for (const monday of mondays) {
+          let count = 0;
+          for (const d of weekRange(monday)) {
+            const v = checkins.get(key(u.id, d, g.id));
+            if (v !== undefined && computeHit(g, v) === true) count += 1;
+          }
+          totalHits += count;
+          if (count >= g.weeklyTarget) weeksHit += 1;
+        }
+        weeklyHits = { weeks: mondays.size, weeksHit, total: totalHits };
+      }
+      return {
+        goalId: g.id,
+        label: g.label,
+        kind: g.kind,
+        unit: g.unit,
+        source: g.source,
+        dailyTarget: g.dailyTarget,
+        weeklyTarget: g.weeklyTarget,
+        enteredDays,
+        hitDays,
+        average: g.kind === 'number' && enteredDays > 0 ? Math.round((sum / enteredDays) * 10) / 10 : null,
+        weeklyHits,
+      };
+    });
+
+    let body: UserSummary['body'] = null;
+    if (isMe) {
+      const rows: Array<{ date: string } & MetricRow> = [];
+      for (const [k, row] of metrics) {
+        const [uid, date] = k.split('|');
+        if (Number(uid) === u.id && date && inRange(date)) rows.push({ date, ...row });
+      }
+      rows.sort((a, b) => a.date.localeCompare(b.date));
+      const fields = ['weightKg', ...MEASURE_KEYS] as const;
+      const pick = (order: typeof rows): BodyNumbers | null => {
+        const first = order[0];
+        if (!first) return null;
+        const out: BodyNumbers = { date: first.date, weightKg: null, waistCm: null, hipsCm: null, chestCm: null, armCm: null, thighCm: null };
+        for (const f of fields) out[f] = order.find((r) => r[f] !== null)?.[f] ?? null;
+        return out;
+      };
+      const start = pick(rows);
+      const latest = pick([...rows].reverse());
+      let change: BodySummary['change'] = null;
+      if (start && latest) {
+        change = { weightKg: null, waistCm: null, hipsCm: null, chestCm: null, armCm: null, thighCm: null };
+        for (const f of fields) {
+          const a = start[f];
+          const b = latest[f];
+          change[f] = a !== null && b !== null ? Math.round((b - a) * 10) / 10 : null;
+        }
+      }
+      body = { start, latest, change };
+    }
+
+    return {
+      userId: u.id,
+      name: u.name,
+      isMe,
+      daysCheckedIn,
+      daysSoFar,
+      goalsHit,
+      goalsTotal: u.goals.length * daysSoFar,
+      bestStreak: streak.best,
+      currentStreak: streak.current,
+      cheersSent: sent.length,
+      cheersReceived: received.length,
+      topEmojiReceived,
+      steps: { total, avgPerDay: total === null ? null : Math.round(total / stepDays), bestDay },
+      goals,
+      body,
+      photos: isMe ? { start: photos.find((p) => p.kind === 'start') ?? null, end: photos.find((p) => p.kind === 'end') ?? null } : null,
+      finishTests: finishTests.filter((t) => t.userId === u.id).map((t) => ({ ...t })),
+    };
+  });
+
+  const byWeek = new Map<string, number>();
+  for (const d of days) {
+    const monday = weekRange(d)[0] ?? d;
+    for (const u of users) if (enteredOn(u.id, d)) byWeek.set(monday, (byWeek.get(monday) ?? 0) + 1);
+  }
+  let bestWeek: SummaryView['team']['bestWeek'] = null;
+  for (const [weekStart, n] of byWeek) if (!bestWeek || n > bestWeek.checkins) bestWeek = { weekStart, checkins: n };
+
+  return {
+    challenge,
+    today,
+    day,
+    endDate: end,
+    complete,
+    team: {
+      checkins: perUser.reduce((n, u) => n + u.daysCheckedIn, 0),
+      possible: users.length * daysSoFar,
+      cheers: cheers.filter((c) => inRange(c.date)).length,
+      bestWeek,
+    },
+    users: perUser,
+  };
+}
+
+// ---- export (T16): small sample payloads with the real content types ----
+
+function csvCell(v: string | number | boolean | null): string {
+  if (v === null) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function csv(rows: Array<Array<string | number | boolean | null>>): string {
+  return `${rows.map((r) => r.map(csvCell).join(',')).join('\n')}\n`;
+}
+
+function attachment(body: string, type: string, kind: string, ext: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': type,
+      'Content-Disposition': `attachment; filename="hydrox45-${kind}-${today}.${ext}"`,
+    },
+  });
+}
+
+function exportJson(): Response {
+  const rows: Array<{ userId: number; date: string; goalId: number; value: number }> = [];
+  for (const [k, value] of checkins) {
+    const [u, date, g] = k.split('|');
+    if (date && date <= today) rows.push({ userId: Number(u), date, goalId: Number(g), value });
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.userId - b.userId || a.goalId - b.goalId);
+  const healthDaily = [...health].map(([k, h]) => {
+    const [u, date] = k.split('|');
+    return { userId: Number(u), date, ...h };
+  });
+  const bodyMetrics = [...metrics].map(([k, row]) => {
+    const [u, date] = k.split('|');
+    return { userId: Number(u), date, ...row };
+  });
+  const body = {
+    exportedAt: new Date().toISOString(),
+    challenge,
+    users: users.map((u) => ({ id: u.id, slug: u.slug, name: u.name, kcalTarget: u.id === 1 ? 1600 : 1500, proteinTargetG: u.id === 1 ? 160 : 130 })),
+    goals: users.flatMap((u) => u.goals.map((g) => ({ ...g, userId: u.id, sort: 0, active: true }))),
+    checkins: rows,
+    cheers,
+    healthDaily,
+    bodyMetrics,
+    finishTests,
+    photos: photos.map(({ url: _url, ...p }) => p),
+  };
+  return attachment(JSON.stringify(body, null, 2), 'application/json; charset=utf-8', 'export', 'json');
+}
+
+function exportCheckinsCsv(): Response {
+  const out: Array<Array<string | number | boolean | null>> = [['date', 'day', 'user', 'goal_key', 'goal_label', 'kind', 'unit', 'value', 'hit']];
+  const rows: Array<Array<string | number | boolean | null>> = [];
+  for (const [k, value] of checkins) {
+    const [uid, date, gid] = k.split('|');
+    const u = users.find((x) => x.id === Number(uid));
+    const g = u?.goals.find((x) => x.id === Number(gid));
+    if (!u || !g || !date || date > today) continue;
+    rows.push([date, dayNumber(date), u.slug, g.key, g.label, g.kind, g.unit, value, computeHit(g, value) === true]);
+  }
+  rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
+  return attachment(csv([...out, ...rows]), 'text/csv; charset=utf-8', 'checkins', 'csv');
+}
+
+function exportMetricsCsv(): Response {
+  const out: Array<Array<string | number | boolean | null>> = [['date', 'day', 'weight_kg', 'waist_cm', 'hips_cm', 'chest_cm', 'arm_cm', 'thigh_cm']];
+  const rows: Array<Array<string | number | boolean | null>> = [];
+  for (const [k, row] of metrics) {
+    const [uid, date] = k.split('|');
+    if (Number(uid) !== ME_ID || !date || date > today) continue;
+    rows.push([date, dayNumber(date), row.weightKg, row.waistCm, row.hipsCm, row.chestCm, row.armCm, row.thighCm]);
+  }
+  rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return attachment(csv([...out, ...rows]), 'text/csv; charset=utf-8', 'metrics', 'csv');
+}
+
+function exportHealthCsv(): Response {
+  const out: Array<Array<string | number | boolean | null>> = [['date', 'day', 'user', 'steps', 'active_kcal']];
+  const rows: Array<Array<string | number | boolean | null>> = [];
+  for (const [k, h] of health) {
+    const [uid, date] = k.split('|');
+    const u = users.find((x) => x.id === Number(uid));
+    if (!u || !date || date > today) continue;
+    rows.push([date, dayNumber(date), u.slug, h.steps, h.activeKcal]);
+  }
+  rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
+  return attachment(csv([...out, ...rows]), 'text/csv; charset=utf-8', 'health', 'csv');
+}
+
+function slugify(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24) || 'test';
+}
+
 function parseBody<T>(body: string | null): T | undefined {
   try {
     return JSON.parse(body ?? '') as T;
@@ -758,6 +1133,55 @@ async function handle(method: string, path: string, query: URLSearchParams, body
     return json(204, undefined);
   }
 
+  // ---- summary + finish-line tests (T15) ----
+  if (method === 'GET' && path === '/api/summary') return json(200, summaryView());
+  if (method === 'POST' && path === '/api/finish-tests') {
+    const b = parseBody<PostFinishTestBody>(text);
+    const label = typeof b?.label === 'string' ? b.label.trim() : '';
+    if (!label || label.length > 40) return error(400, 'bad_request', 'label must be 1–40 characters');
+    if (finishTests.filter((t) => t.userId === ME_ID).length >= FINISH_TESTS_MAX) return error(400, 'too_many', 'Up to 5 tests per person');
+    const test: FinishTest = {
+      id: nextTestId++,
+      userId: ME_ID,
+      key: `${slugify(label)}-${Math.random().toString(36).slice(2, 6)}`,
+      label,
+      passed: null,
+      result: null,
+      testedOn: null,
+    };
+    finishTests.push(test);
+    return json(201, { ...test });
+  }
+  m = /^\/api\/finish-tests\/(\d+)$/.exec(path);
+  if (m && (method === 'PUT' || method === 'DELETE')) {
+    const id = Number(m[1]);
+    const idx = finishTests.findIndex((t) => t.id === id && t.userId === ME_ID);
+    const test = finishTests[idx];
+    if (idx < 0 || !test) return error(404, 'not_found', 'No such test');
+    if (method === 'DELETE') {
+      finishTests.splice(idx, 1);
+      return json(204, undefined);
+    }
+    const b = parseBody<PutFinishTestBody>(text);
+    if (!b || typeof b !== 'object' || (b.passed !== null && typeof b.passed !== 'boolean')) return error(400, 'bad_request', 'passed must be true, false or null');
+    if (b.result !== undefined && b.result !== null && (typeof b.result !== 'string' || b.result.length > 80)) return error(400, 'bad_request', 'result must be ≤ 80 characters');
+    if (b.testedOn !== undefined && b.testedOn !== null) {
+      if (typeof b.testedOn !== 'string' || !isValidISODate(b.testedOn)) return error(400, 'bad_request', 'Malformed date');
+      if (b.testedOn > today) return error(400, 'future_date', 'Date is in the future');
+      if (b.testedOn < challenge.startDate) return error(400, 'before_start', 'Date is before the challenge');
+    }
+    test.passed = b.passed;
+    if (b.result !== undefined) test.result = b.result?.trim() ? b.result.trim() : null;
+    if (b.testedOn !== undefined) test.testedOn = b.testedOn;
+    return json(200, { ...test });
+  }
+
+  // ---- export (T16) ----
+  if (method === 'GET' && path === '/api/export.json') return exportJson();
+  if (method === 'GET' && path === '/api/export.csv') return exportCheckinsCsv();
+  if (method === 'GET' && path === '/api/export/metrics.csv') return exportMetricsCsv();
+  if (method === 'GET' && path === '/api/export/health.csv') return exportHealthCsv();
+
   return error(404, 'not_found', `No mock route for ${method} ${path}`);
 }
 
@@ -777,6 +1201,12 @@ declare global {
       setImportState: (state: ImportState) => void;
       /** T14: empty the photo grid. */
       clearPhotos: () => void;
+      /**
+       * T15: jump to challenge day `n` (1–45+). Days after the hand-written seed are filled with
+       * plausible data, so `setDay(45)` is a complete challenge with a finish photo and the
+       * partner's test results recorded.
+       */
+      setDay: (n: number) => void;
     };
   }
 }
@@ -831,6 +1261,10 @@ export function installMockApi(): void {
     },
     clearPhotos: () => {
       photos = [];
+    },
+    setDay: (n: number) => {
+      today = addDays(challenge.startDate, n - 1);
+      if (today > filledThrough) fillThrough(today);
     },
   };
   console.info(`[${MOCK_MARKER}] mock API installed; today=${today}`);

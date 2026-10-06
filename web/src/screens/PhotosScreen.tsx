@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
 import { api, ApiError, describeError, PHOTO_MAX_BYTES } from '../api/client';
 import type { Photo, PhotoKind, TeamView } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
 import { daysBetween, formatShortDate, isValidISODate } from '../lib/dates';
@@ -222,7 +221,6 @@ export function PhotosScreen() {
           </ul>
         )}
       </main>
-      <Footer current="photos" />
       <Toast message={toast} onDismiss={() => setToast(null)} />
 
       {file && today && (

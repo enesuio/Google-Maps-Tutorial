@@ -12,18 +12,18 @@ const RING_STROKE = 6;
  * number in the middle in text ink. Decorative only (`aria-hidden`); the strip's text and
  * the ring's own aria-label carry the numbers.
  */
-export function TeamRing({ done, target }: { done: number; target: number }) {
-  const arc = ringArc(done, target, RING_SIZE, RING_STROKE);
-  const c = RING_SIZE / 2;
+export function TeamRing({ done, target, label, size = RING_SIZE }: { done: number; target: number; label?: string; size?: number }) {
+  const arc = ringArc(done, target, size, RING_STROKE);
+  const c = size / 2;
   return (
-    <div className="team-ring" style={{ width: RING_SIZE, height: RING_SIZE }}>
+    <div className="team-ring" style={{ width: size, height: size }}>
       <svg
         className="team-ring-svg"
-        width={RING_SIZE}
-        height={RING_SIZE}
-        viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={ringDescription(done, target)}
+        aria-label={label ?? ringDescription(done, target)}
       >
         <circle className="team-ring-track" cx={c} cy={c} r={arc.radius} strokeWidth={RING_STROKE} />
         <circle

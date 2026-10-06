@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { RecapView, TeamView, UserRecap } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { formatShortDate, isValidISODate } from '../lib/dates';
 import { formatThousands } from '../lib/health';
@@ -129,7 +128,6 @@ export function RecapScreen() {
           </>
         )}
       </main>
-      <Footer current="recap" />
     </div>
   );
 }
