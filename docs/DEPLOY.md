@@ -72,7 +72,21 @@ it into the LXC), or an rclone sync to cloud storage. 45 days of data is small b
 `goals` and `checkins`, and drops the scratch database. To restore for real, stop `app`, drop and
 recreate `hydrox`, load the dump with `psql`, and start `app` again.
 
-## 6. Updating
+## 6. Push notifications (Phase 2)
+
+1. Generate VAPID keys once and put them in `.env`:
+   ```sh
+   docker compose exec app node api/dist/cli/gen-vapid.js
+   ```
+   Set `VAPID_SUBJECT` to a `mailto:` address you own. Restart with `docker compose up -d`.
+2. On each iPhone: open the site in Safari → Share → **Add to Home Screen**. Push only works
+   from the installed app (iOS 16.4+), never from a Safari tab.
+3. Open the installed app → footer → **Turn on notifications** → allow → **Send a test**.
+4. The 9 pm reminder and the partner check-in alert are scheduled by the API itself through
+   Redis; nothing else to install. If notifications stop, check `docker compose logs app` for
+   push errors; a subscription that the phone revoked is deleted automatically.
+
+## 7. Updating
 
 ```sh
 cd /opt/hydrox45 && git pull && docker compose up -d --build

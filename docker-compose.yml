@@ -37,6 +37,9 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       TZ: America/Toronto
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     ports:
       - "3000:3000"
     volumes:
