@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { dayCounterLabel, formatLongDate } from '../lib/dates';
+import { TabBar } from './TabBar';
 
 interface Props {
   /** Challenge day for the date shown (null while loading). */
@@ -11,6 +12,10 @@ interface Props {
   today?: string | null;
 }
 
+/**
+ * Brand, day counter and the site navigation. The nav is a fixed bottom tab bar on phones
+ * and sits inline at the top right from 720px up (see `.tabbar` in styles.css).
+ */
 export function Header({ day, lengthDays, editingDate = null, today = null }: Props) {
   const counter = day !== null && lengthDays !== null ? dayCounterLabel(day, lengthDays) : null;
   const isPast = editingDate !== null && editingDate !== today;
@@ -21,7 +26,10 @@ export function Header({ day, lengthDays, editingDate = null, today = null }: Pr
         <Link to="/" className="brand" aria-label="Hydrox 45, today">
           Hydrox 45
         </Link>
-        {counter && <span className="day-counter">{counter}</span>}
+        <div className="header-right">
+          <TabBar />
+          {counter && <span className="day-counter">{counter}</span>}
+        </div>
       </div>
       {isPast && editingDate && (
         <div className="header-sub">

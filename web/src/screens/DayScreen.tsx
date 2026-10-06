@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { Cheer, DayView } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
+import { HealthSection } from '../components/HealthSection';
 import { NotificationsSection } from '../components/NotificationsSection';
+import { TeamStrip } from '../components/TeamStrip';
 import { Toast } from '../components/Toast';
 import { UserCard } from '../components/UserCard';
 import { addCheer, removeCheer, replaceCheer } from '../lib/cheers';
@@ -199,6 +200,7 @@ export function DayScreen({ mode }: Props) {
             <p>{loadError}</p>
           </div>
         )}
+        {view && routeDate === null && <TeamStrip />}
         {view && (
           <div className="cards">
             {me && (
@@ -225,9 +227,13 @@ export function DayScreen({ mode }: Props) {
               ))}
           </div>
         )}
-        {view && routeDate === null && <NotificationsSection partnerName={others[0]?.name ?? null} />}
+        {view && routeDate === null && (
+          <div className="settings-grid">
+            <NotificationsSection partnerName={others[0]?.name ?? null} />
+            <HealthSection />
+          </div>
+        )}
       </main>
-      <Footer current={routeDate === null ? 'today' : 'day'} />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </div>
   );

@@ -23,6 +23,7 @@ const kcal: GoalView = {
   value: null,
   hit: null,
   weekCount: null,
+  source: 'manual',
 };
 const protein: GoalView = { ...kcal, id: 3, key: 'protein', label: 'Protein', unit: 'g', direction: 'at_least', dailyTarget: 160 };
 const walk: GoalView = { ...kcal, id: 1, key: 'walk', label: 'Daily walk', kind: 'bool', unit: null, direction: null, dailyTarget: null };
@@ -92,8 +93,8 @@ describe('applyValue', () => {
     today: '2026-10-08',
     challenge: { name: 'Hydrox 45', startDate: '2026-10-06', lengthDays: 45 },
     users: [
-      { id: 1, slug: 'enes', name: 'Enes', isMe: true, goals: [walk, kcal], streak: noStreak, totalCheckins: 0, cheers: [] },
-      { id: 2, slug: 'partner', name: 'Partner', isMe: false, goals: [f45], streak: noStreak, totalCheckins: 0, cheers: [] },
+      { id: 1, slug: 'enes', name: 'Enes', isMe: true, goals: [walk, kcal], streak: noStreak, totalCheckins: 0, cheers: [], health: null },
+      { id: 2, slug: 'partner', name: 'Partner', isMe: false, goals: [f45], streak: noStreak, totalCheckins: 0, cheers: [], health: null },
     ],
   };
 

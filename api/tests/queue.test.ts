@@ -59,7 +59,7 @@ const waitFor = async (check: () => boolean | Promise<boolean>, ms = 10_000): Pr
 };
 
 describe('BullMQ queue against the real Redis', () => {
-  it('enqueue → worker runs the handler → fake sender called; the evening reminder is scheduled', async (ctx) => {
+  it('enqueue → worker runs the handler → fake sender called; the three repeatable jobs are scheduled', async (ctx) => {
     if (!redisUp) return ctx.skip();
     const sender = new FakeSender();
     const agnesId = await userId('agnes');
@@ -78,13 +78,16 @@ describe('BullMQ queue against the real Redis', () => {
       },
     ]);
 
-    // The repeatable 21:00 Toronto evening reminder is registered on this queue.
+    // The three repeatable Toronto-time jobs are registered on this queue.
     const client = new Redis(REDIS_URL, { maxRetriesPerRequest: 1 });
     client.on('error', () => {});
     try {
-      await waitFor(async () => (await client.exists(`bull:${queueName}:repeat:evening-reminder`)) === 1);
-      const scheduler = await client.hgetall(`bull:${queueName}:repeat:evening-reminder`);
-      expect(scheduler).toMatchObject({ pattern: '0 21 * * *', tz: 'America/Toronto' });
+      const expected = { 'evening-reminder': '0 21 * * *', 'weekly-recap': '0 19 * * 0', milestone: '0 9 * * *' };
+      for (const [name, pattern] of Object.entries(expected)) {
+        await waitFor(async () => (await client.exists(`bull:${queueName}:repeat:${name}`)) === 1);
+        const scheduler = await client.hgetall(`bull:${queueName}:repeat:${name}`);
+        expect(scheduler, name).toMatchObject({ pattern, tz: 'America/Toronto' });
+      }
     } finally {
       client.disconnect();
     }

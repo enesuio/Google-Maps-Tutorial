@@ -10,6 +10,8 @@ const configSchema = z.object({
   SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be at least 16 characters'),
   APP_ORIGIN: z.string().url().default('http://localhost:3000'),
   TZ: z.string().min(1).default('America/Toronto'),
+  /** Photo storage (T14): `<UPLOADS_DIR>/<userId>/<photoId>.<ext>`; created on boot. */
+  UPLOADS_DIR: z.string().min(1).default('./uploads'),
   // Push + jobs (T7). All four must be set for push to be enabled; otherwise it is disabled
   // with one warning and everything else keeps working.
   REDIS_URL: optionalString,

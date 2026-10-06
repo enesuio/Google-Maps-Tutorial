@@ -1,5 +1,6 @@
 import type { UserDayView } from '../api/types';
 import { summarize, summaryLabel } from '../lib/goals';
+import { healthLine } from '../lib/health';
 import { CheerBar, CheerChips } from './Cheers';
 import { GoalRow } from './GoalRow';
 import { StreakBadge } from './StreakBadge';
@@ -21,6 +22,7 @@ interface Props {
 export function UserCard({ user, editable, onChange, status = null, meId, nameOf, onCheer, onDeleteCheer }: Props) {
   const summary = summarize(user.goals);
   const title = user.isMe ? 'You' : user.name;
+  const health = healthLine(user.health);
 
   return (
     <section className={`card ${user.isMe ? 'card-me' : 'card-partner'}`} aria-labelledby={`card-${user.id}`}>
@@ -43,6 +45,12 @@ export function UserCard({ user, editable, onChange, status = null, meId, nameOf
           )}
         </div>
       </header>
+      {health && (
+        <p className="health-line">
+          <span className="sr-only">From Apple Health: </span>
+          {health}
+        </p>
+      )}
       <StreakBadge streak={user.streak} totalCheckins={user.totalCheckins} />
       <CheerChips cheers={user.cheers} meId={meId} nameOf={nameOf} {...(onDeleteCheer ? { onDelete: onDeleteCheer } : {})} />
       {user.goals.length === 0 ? (

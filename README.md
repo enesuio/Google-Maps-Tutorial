@@ -52,5 +52,11 @@ scripts/      backup and restore helpers
 
 ## Status
 
-Phase 1 (v1): login, day counter, daily check-in, shared today screen, history with backfill.
-See the ticket list in `docs/ROADMAP.md` for what comes next.
+| Phase | Tickets | State |
+| --- | --- | --- |
+| 1. v1 | login, day counter, check-in, shared today screen, history with backfill | built |
+| 2. Habit loop | PWA, push reminders, cheers, forgiving streaks, weight trend | built |
+| 3. Delight | Apple Health import, weekly recap, milestones and team ring, private photos and measurements | built |
+| 4. Finish | Day 45 summary with finish-line tests, JSON/CSV export | built |
+
+T5 (deploy to the homelab) is yours; see `docs/DEPLOY.md`. Apple Health setup: `docs/HEALTH-IMPORT.md`.

@@ -18,6 +18,14 @@ const goalSchema = z.object({
   weeklyTarget: z.number().nullable().default(null),
   sort: z.number().int().default(0),
   active: z.boolean().default(true),
+  /** `manual` (default) or filled by the Apple Health import; see docs/API.md Phase 3. */
+  source: z.enum(['manual', 'health_steps', 'health_active_kcal']).default('manual'),
+});
+
+/** A finish-line test (T15): shown in the Day 45 summary, filled in once. */
+const finishTestSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1).max(80),
 });
 
 export const seedSchema = z.object({
@@ -33,6 +41,7 @@ export const seedSchema = z.object({
       kcalTarget: z.number().int().nullable().default(null),
       proteinTargetG: z.number().int().nullable().default(null),
       goals: z.array(goalSchema).default([]),
+      finishTests: z.array(finishTestSchema).default([]),
     }),
   ),
 });
@@ -46,7 +55,7 @@ export async function loadSeedFile(file: string = SEED_PATH): Promise<SeedData> 
 }
 
 /**
- * Idempotent seed: challenge upserted by name, users by slug, goals by (user, key).
+ * Idempotent seed: challenge upserted by name, users by slug, goals and finish tests by (user, key).
  * Running it twice changes nothing.
  */
 export async function runSeed(db: Db, input?: SeedInput): Promise<void> {
@@ -104,11 +113,21 @@ export async function runSeed(db: Db, input?: SeedInput): Promise<void> {
           weekly_target: goal.weeklyTarget,
           sort: goal.sort,
           active: goal.active,
+          source: goal.source,
         };
         await trx
           .insertInto('goals')
           .values({ user_id: row.id, key: goal.key, ...values })
           .onConflict((oc) => oc.columns(['user_id', 'key']).doUpdateSet(values))
+          .execute();
+      }
+
+      // Only the label is seeded; a recorded result (passed/result/tested_on) is never overwritten.
+      for (const test of user.finishTests) {
+        await trx
+          .insertInto('finish_tests')
+          .values({ user_id: row.id, key: test.key, label: test.label })
+          .onConflict((oc) => oc.columns(['user_id', 'key']).doUpdateSet({ label: test.label }))
           .execute();
       }
     }

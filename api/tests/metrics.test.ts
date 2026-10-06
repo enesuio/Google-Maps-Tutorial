@@ -33,6 +33,9 @@ async function get(cookie: string, qs = '') {
 }
 const mine = (v: MetricsView) => v.series.find((s) => s.isMe)!;
 const theirs = (v: MetricsView) => v.series.find((s) => !s.isMe)!;
+/** The four Phase 3 measurements, all unset. */
+const noTape = { hipsCm: null, chestCm: null, armCm: null, thighCm: null };
+const noMeasurements = { waistCm: null, ...noTape };
 
 describe('GET /api/metrics', () => {
   it('returns both series, me first, shared by default, empty when nothing is entered', async () => {
@@ -45,6 +48,8 @@ describe('GET /api/metrics', () => {
       [await userId('agnes'), 'Agnes', false, true],
     ]);
     for (const s of view.series) expect(s).toMatchObject({ points: [], latestWeightKg: null, startWeightKg: null });
+    expect(mine(view)).toMatchObject({ latest: noMeasurements, start: noMeasurements });
+    expect(theirs(view)).toMatchObject({ latest: null, start: null });
   });
 
   it('validates and clamps from/to', async () => {
@@ -64,12 +69,12 @@ describe('PUT /api/metrics/:date', () => {
     let res = await put(enes, '2026-10-20', { weightKg: 82.4 });
     expect(res.statusCode).toBe(200);
     let view = json<MetricsView>(res);
-    expect(mine(view).points).toEqual([{ date: '2026-10-20', weightKg: 82.4, waistCm: null, weightAvg7: 82.4 }]);
+    expect(mine(view).points).toEqual([{ date: '2026-10-20', weightKg: 82.4, waistCm: null, ...noTape, weightAvg7: 82.4 }]);
     expect(mine(view)).toMatchObject({ latestWeightKg: 82.4, startWeightKg: 82.4 });
 
     // Omitted weight stays; waist added.
     view = json<MetricsView>(await put(enes, '2026-10-20', { waistCm: 91 }));
-    expect(mine(view).points[0]).toEqual({ date: '2026-10-20', weightKg: 82.4, waistCm: 91, weightAvg7: 82.4 });
+    expect(mine(view).points[0]).toEqual({ date: '2026-10-20', weightKg: 82.4, waistCm: 91, ...noTape, weightAvg7: 82.4 });
 
     // Overwrite weight.
     view = json<MetricsView>(await put(enes, '2026-10-20', { weightKg: 82 }));
@@ -78,7 +83,7 @@ describe('PUT /api/metrics/:date', () => {
 
     // Clear weight only → row stays with waist.
     view = json<MetricsView>(await put(enes, '2026-10-20', { weightKg: null }));
-    expect(mine(view).points[0]).toEqual({ date: '2026-10-20', weightKg: null, waistCm: 91, weightAvg7: null });
+    expect(mine(view).points[0]).toEqual({ date: '2026-10-20', weightKg: null, waistCm: 91, ...noTape, weightAvg7: null });
     expect(mine(view).latestWeightKg).toBeNull();
 
     // Clear waist too → row deleted.
@@ -111,7 +116,7 @@ describe('PUT /api/metrics/:date', () => {
     expect(byDate['2026-10-11']!.weightAvg7).toBe(83.5);
     expect(byDate['2026-10-13']!.weightAvg7).toBe(83); // 84, 83, 82
     // Oct 16: window Oct 10–16 → 84, 83, 82, 81, 80 (no weight on 16 itself) = 82
-    expect(byDate['2026-10-16']).toEqual({ date: '2026-10-16', weightKg: null, waistCm: 90, weightAvg7: 82 });
+    expect(byDate['2026-10-16']).toEqual({ date: '2026-10-16', weightKg: null, waistCm: 90, ...noTape, weightAvg7: 82 });
     // Oct 17: window Oct 11–17 → 83, 82, 81, 80, 79 = 81
     expect(byDate['2026-10-17']!.weightAvg7).toBe(81);
     // Oct 20: window Oct 14–20 → 81, 80, 79, 78 = 79.5
@@ -163,6 +168,63 @@ describe('PUT /api/metrics/:date', () => {
   });
 });
 
+describe('measurements (Phase 3)', () => {
+  it('round-trips the four tape fields, null clears, and the row goes only when all six are null', async () => {
+    const enes = await login(app, 'enes');
+    let view = json<MetricsView>(await put(enes, '2026-10-20', { hipsCm: 100.5, chestCm: 105, armCm: 36, thighCm: 60 }));
+    expect(mine(view).points).toEqual([
+      { date: '2026-10-20', weightKg: null, waistCm: null, hipsCm: 100.5, chestCm: 105, armCm: 36, thighCm: 60, weightAvg7: null },
+    ]);
+    expect(await db.selectFrom('body_metrics').select(['hips_cm', 'chest_cm', 'arm_cm', 'thigh_cm']).execute()).toEqual([
+      { hips_cm: '100.5', chest_cm: '105', arm_cm: '36', thigh_cm: '60' },
+    ]);
+
+    // Omitted fields stay; one cleared with null.
+    view = json<MetricsView>(await put(enes, '2026-10-20', { armCm: null, waistCm: 90 }));
+    expect(mine(view).points[0]).toMatchObject({ waistCm: 90, hipsCm: 100.5, chestCm: 105, armCm: null, thighCm: 60 });
+
+    // Clearing five of six keeps the row for the sixth.
+    view = json<MetricsView>(await put(enes, '2026-10-20', { waistCm: null, hipsCm: null, chestCm: null, weightKg: null }));
+    expect(mine(view).points[0]).toMatchObject({ weightKg: null, ...noMeasurements, thighCm: 60 });
+    expect(await db.selectFrom('body_metrics').select('date').execute()).toHaveLength(1);
+
+    // All six null → row deleted.
+    view = json<MetricsView>(await put(enes, '2026-10-20', { thighCm: null }));
+    expect(mine(view).points).toEqual([]);
+    expect(await db.selectFrom('body_metrics').select('date').execute()).toEqual([]);
+
+    // Ranges: 30–250 cm for every tape measurement.
+    for (const bad of [{ hipsCm: 29.9 }, { chestCm: 250.1 }, { armCm: 0 }, { thighCm: 251 }, { hipsCm: '100' }]) {
+      const res = await put(enes, '2026-10-20', bad as NonNullable<InjectOptions['payload']>);
+      expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+      expect(codeOf(res)).toBe('bad_request');
+    }
+    expect((await put(enes, '2026-10-20', { hipsCm: 30, chestCm: 250, armCm: 30, thighCm: 250 })).statusCode).toBe(200);
+  });
+
+  it('latest = latest non-null per field, start = earliest since startDate; the partner gets null for both', async () => {
+    const enes = await login(app, 'enes');
+    const agnes = await login(app, 'agnes');
+    await put(enes, '2026-10-06', { waistCm: 95, hipsCm: 104 });
+    await put(enes, '2026-10-13', { waistCm: 93, armCm: 37 });
+    await put(enes, '2026-10-20', { waistCm: 92, thighCm: 61 });
+    await put(agnes, '2026-10-20', { waistCm: 70, hipsCm: 95, weightKg: 65 });
+
+    const view = await get(enes);
+    expect(mine(view).latest).toEqual({ waistCm: 92, hipsCm: 104, chestCm: null, armCm: 37, thighCm: 61 });
+    expect(mine(view).start).toEqual({ waistCm: 95, hipsCm: 104, chestCm: null, armCm: 37, thighCm: 61 });
+    // Partner: series shared (points visible, waist included) but no latest/start summaries.
+    expect(theirs(view).points).toHaveLength(1);
+    expect(theirs(view).points[0]).toMatchObject({ waistCm: 70, hipsCm: 95, weightKg: 65 });
+    expect(theirs(view)).toMatchObject({ latest: null, start: null, latestWeightKg: 65 });
+
+    // From Agnes's side, her own summaries are present and Enes's are null.
+    const hers = await get(agnes);
+    expect(mine(hers).latest).toEqual({ waistCm: 70, hipsCm: 95, chestCm: null, armCm: null, thighCm: null });
+    expect(theirs(hers)).toMatchObject({ latest: null, start: null });
+  });
+});
+
 describe('PUT /api/metrics/sharing', () => {
   it('hides the partner’s series when off but keeps shared:false and the name; own series always visible', async () => {
     const enes = await login(app, 'enes');
@@ -191,6 +253,8 @@ describe('PUT /api/metrics/sharing', () => {
       points: [],
       latestWeightKg: null,
       startWeightKg: null,
+      latest: null,
+      start: null,
     });
 
     // Back on.

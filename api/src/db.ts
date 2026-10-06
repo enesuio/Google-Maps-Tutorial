@@ -11,6 +11,9 @@ type NullableNumeric = ColumnType<string | null, number | string | null, number 
 
 export type GoalKind = 'bool' | 'number';
 export type GoalDirection = 'at_least' | 'at_most';
+/** Who fills a goal's check-in: by hand, or the Apple Health import (steps / active energy). */
+export type GoalSource = 'manual' | 'health_steps' | 'health_active_kcal';
+export type PhotoKind = 'start' | 'progress' | 'end';
 
 export interface UsersTable {
   id: Generated<number>;
@@ -42,6 +45,7 @@ export interface GoalsTable {
   weekly_target: NullableNumeric;
   sort: Generated<number>;
   active: Generated<boolean>;
+  source: Generated<GoalSource>;
 }
 
 export interface CheckinsTable {
@@ -81,6 +85,10 @@ export interface BodyMetricsTable {
   date: string; // YYYY-MM-DD
   weight_kg: NullableNumeric;
   waist_cm: NullableNumeric;
+  hips_cm: NullableNumeric;
+  chest_cm: NullableNumeric;
+  arm_cm: NullableNumeric;
+  thigh_cm: NullableNumeric;
   updated_at: Generated<Date>;
 }
 
@@ -93,6 +101,50 @@ export interface PushSubscriptionsTable {
   created_at: Generated<Date>;
   last_error: string | null;
   failed_at: Date | null;
+}
+
+export interface HealthDailyTable {
+  user_id: number;
+  date: string; // YYYY-MM-DD
+  steps: number | null;
+  active_kcal: NullableNumeric;
+  source: Generated<string>;
+  updated_at: Generated<Date>;
+}
+
+export interface ImportTokensTable {
+  token: string;
+  user_id: number;
+  created_at: Generated<Date>;
+  last_used_at: Date | null;
+  revoked_at: Date | null;
+}
+
+export interface PhotosTable {
+  id: Generated<number>;
+  user_id: number;
+  date: string; // YYYY-MM-DD
+  kind: PhotoKind;
+  /** Relative to UPLOADS_DIR: `<userId>/<photoId>.<ext>`. */
+  path: string;
+  mime: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  created_at: Generated<Date>;
+}
+
+/** Finish-line tests (T15): recorded once in the Day 45 summary, never tracked daily. */
+export interface FinishTestsTable {
+  id: Generated<number>;
+  user_id: number;
+  key: string;
+  label: string;
+  /** null = not tested yet */
+  passed: boolean | null;
+  result: string | null;
+  tested_on: string | null; // YYYY-MM-DD
+  updated_at: Generated<Date>;
 }
 
 export interface SchemaMigrationsTable {
@@ -110,6 +162,10 @@ export interface Database {
   cheers: CheersTable;
   body_metrics: BodyMetricsTable;
   push_subscriptions: PushSubscriptionsTable;
+  health_daily: HealthDailyTable;
+  import_tokens: ImportTokensTable;
+  photos: PhotosTable;
+  finish_tests: FinishTestsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

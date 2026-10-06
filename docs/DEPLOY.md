@@ -45,7 +45,8 @@ Each link works once and sets a 1-year cookie. Generate a new one if a phone is 
 
 ## 4. Nightly backup
 
-`scripts/backup.sh` dumps the database with `pg_dump` from the `db` container and keeps 30 days.
+`scripts/backup.sh` dumps the database with `pg_dump` from the `db` container, archives the photo
+uploads volume, and keeps 30 days of both.
 Install it as a cron job in the LXC:
 
 ```sh
@@ -70,7 +71,8 @@ it into the LXC), or an rclone sync to cloud storage. 45 days of data is small b
 
 `restore-test.sh` creates `hydrox_restore_test`, loads the dump, prints row counts for `users`,
 `goals` and `checkins`, and drops the scratch database. To restore for real, stop `app`, drop and
-recreate `hydrox`, load the dump with `psql`, and start `app` again.
+recreate `hydrox`, load the dump with `psql`, extract the uploads archive into the `app` container's
+`/app` (`docker compose cp`), and start `app` again.
 
 ## 6. Push notifications (Phase 2)
 

@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { GoalView } from '../api/types';
 import { formatNumber, formatValue, parseNumberInput, targetLabel, weeklyLabel } from '../lib/goals';
+import { formatThousands } from '../lib/health';
 import { StatusIcon } from './StatusIcon';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function GoalRow({ goal, editable, onChange }: Props) {
+  if (goal.source !== 'manual') return <AutoRow goal={goal} />;
   return goal.kind === 'bool' ? (
     <BoolRow goal={goal} editable={editable} {...(onChange ? { onChange } : {})} />
   ) : (
@@ -57,6 +59,51 @@ function BoolRow({ goal, editable, onChange }: Props) {
         {inner}
       </button>
     </li>
+  );
+}
+
+/**
+ * A goal filled from Apple Health (T11): read-only on both cards, no input, no toggle.
+ * While the evening import has not arrived the value reads "waiting for tonight's import".
+ */
+function AutoRow({ goal }: { goal: GoalView }) {
+  const target = targetLabel(goal);
+  const waiting = goal.value === null;
+  return (
+    <li className="goal-row goal-number goal-auto" data-hit={hitState(goal.hit)}>
+      <div className="goal-text">
+        <span className="goal-label">{goal.label}</span>
+        <span className="goal-meta">
+          {target && <span className="goal-target">{target}</span>}
+          <span className="goal-source">
+            <HealthIcon />
+            from Apple Health
+          </span>
+        </span>
+      </div>
+      <div className="goal-value">
+        {waiting ? (
+          <span className="goal-waiting">waiting for tonight's import</span>
+        ) : (
+          <>
+            <span className="number-static">{goal.value === null ? '—' : formatThousands(goal.value)}</span>
+            {goal.unit && <span className="unit">{goal.unit}</span>}
+          </>
+        )}
+        <StatusIcon hit={goal.hit} />
+      </div>
+    </li>
+  );
+}
+
+function HealthIcon() {
+  return (
+    <svg className="health-icon" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 21s-7.5-4.6-9.6-9.4C.9 8.2 3 4.5 6.8 4.5c2 0 3.6 1.1 5.2 3 1.6-1.9 3.2-3 5.2-3 3.8 0 5.9 3.7 4.4 7.1C19.5 16.4 12 21 12 21z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 

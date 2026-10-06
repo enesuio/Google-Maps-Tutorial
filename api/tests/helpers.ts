@@ -28,7 +28,7 @@ export async function migrateOnce(): Promise<void> {
 
 /** Empties every table (ids restart at 1) and re-seeds. */
 export async function resetDb(): Promise<void> {
-  await sql`truncate table checkins, cheers, body_metrics, push_subscriptions, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
+  await sql`truncate table checkins, cheers, body_metrics, health_daily, import_tokens, photos, finish_tests, push_subscriptions, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
     db,
   );
   await runSeed(db);
@@ -87,7 +87,7 @@ export const FAKE_VAPID = {
   VAPID_SUBJECT: 'mailto:test@example.com',
 };
 
-type AppConfig = Partial<typeof TEST_ENV & typeof FAKE_VAPID & { REDIS_URL: string }>;
+type AppConfig = Partial<typeof TEST_ENV & typeof FAKE_VAPID & { REDIS_URL: string; UPLOADS_DIR: string }>;
 
 /**
  * Builds the app on the shared test DB. Unless `jobs` is given, a fresh fake queue is injected so no

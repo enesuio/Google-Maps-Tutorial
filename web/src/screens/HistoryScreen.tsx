@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { HistoryView } from '../api/types';
-import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { daysBetween, formatShortDate } from '../lib/dates';
 
@@ -108,7 +107,6 @@ export function HistoryScreen() {
           </div>
         )}
       </main>
-      <Footer current="history" />
     </div>
   );
 }

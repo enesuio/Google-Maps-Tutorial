@@ -10,7 +10,7 @@ export default defineConfig({
     proxy: {
       '/api': api,
       '/setup': api,
-      '/health': api,
+      '^/health$': api, // exact: /health-setup is an app route
     },
   },
   build: {

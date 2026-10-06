@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { api, ApiError, describeError } from '../api/client';
-import type { MetricPoint, MetricsSeries, MetricsView, PutMetricsBody } from '../api/types';
-import { Footer } from '../components/Footer';
+import type { Measurements, MetricPoint, MetricsSeries, MetricsView, PutMetricsBody } from '../api/types';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
 import { WeightChart } from '../components/WeightChart';
-import { formatKg } from '../lib/chart';
+import { formatCm, formatKg } from '../lib/chart';
 import { daysBetween, formatLongDate, isValidISODate } from '../lib/dates';
 import { parseNumberInput } from '../lib/goals';
 
@@ -20,8 +19,10 @@ export function TrendScreen() {
   const [inflight, setInflight] = useState(0);
   const [savedFlash, setSavedFlash] = useState(false);
   const [sharingBusy, setSharingBusy] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const dateInputId = useId();
   const shareId = useId();
+  const moreId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +190,33 @@ export function TrendScreen() {
                   onCommit={(v) => void save({ waistCm: v })}
                 />
               </ul>
+              <button
+                type="button"
+                className="link-button more-toggle"
+                aria-expanded={moreOpen}
+                aria-controls={moreId}
+                onClick={() => setMoreOpen((o) => !o)}
+              >
+                <svg className="more-chevron" data-open={moreOpen} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                More measurements
+              </button>
+              {moreOpen && (
+                <ul className="goal-list" id={moreId}>
+                  {MEASUREMENTS.filter((m) => m.key !== 'waistCm').map((m) => (
+                    <MetricRow
+                      key={`${m.key}-${entryDate}`}
+                      label={m.label}
+                      unit="cm"
+                      value={entryPoint?.[m.key] ?? null}
+                      min={30}
+                      max={250}
+                      onCommit={(v) => void save({ [m.key]: v })}
+                    />
+                  ))}
+                </ul>
+              )}
             </section>
 
             {/* ---- my trend ---- */}
@@ -216,7 +244,6 @@ export function TrendScreen() {
           </div>
         )}
       </main>
-      <Footer current="trend" />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </div>
   );
@@ -260,8 +287,59 @@ function SeriesCard({ series, startDate, today, title, children }: SeriesCardPro
       ) : (
         <WeightChart name={series.isMe ? 'you' : series.name} points={series.points} startDate={startDate} endDate={today} />
       )}
+      {series.isMe && <MeasurementsTable start={series.start} latest={series.latest} />}
       {children}
     </section>
+  );
+}
+
+// ---- measurements (T14): own card only ----
+
+const MEASUREMENTS: Array<{ key: keyof Measurements; label: string }> = [
+  { key: 'waistCm', label: 'Waist' },
+  { key: 'hipsCm', label: 'Hips' },
+  { key: 'chestCm', label: 'Chest' },
+  { key: 'armCm', label: 'Arm' },
+  { key: 'thighCm', label: 'Thigh' },
+];
+
+/** "Start → latest" for each measurement with at least one value. Never rendered for the partner. */
+function MeasurementsTable({ start, latest }: { start: Measurements | null; latest: Measurements | null }) {
+  if (!start || !latest) return null;
+  const rows = MEASUREMENTS.filter((m) => start[m.key] !== null || latest[m.key] !== null);
+  if (rows.length === 0) return null;
+  return (
+    <table className="measure-table">
+      <caption className="measure-caption">Measurements · start → latest</caption>
+      <thead className="sr-only">
+        <tr>
+          <th scope="col">Measurement</th>
+          <th scope="col">Start</th>
+          <th scope="col">Latest</th>
+          <th scope="col">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((m) => {
+          const a = start[m.key];
+          const b = latest[m.key];
+          const delta = a !== null && b !== null ? Math.round((b - a) * 10) / 10 : null;
+          return (
+            <tr key={m.key}>
+              <th scope="row">{m.label}</th>
+              <td>{formatCm(a)}</td>
+              <td className="measure-arrow" aria-hidden="true">
+                →
+              </td>
+              <td>{formatCm(b)}</td>
+              <td className="measure-delta">
+                {delta === null ? '' : delta === 0 ? '±0' : `${delta < 0 ? '−' : '+'}${Math.abs(delta)} cm`}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

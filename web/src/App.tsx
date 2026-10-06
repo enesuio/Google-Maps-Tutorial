@@ -2,8 +2,12 @@ import { useSyncExternalStore } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { isUnauthenticated, subscribeAuth } from './api/client';
 import { DayScreen } from './screens/DayScreen';
+import { HealthSetupScreen } from './screens/HealthSetupScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
+import { PhotosScreen } from './screens/PhotosScreen';
+import { RecapScreen } from './screens/RecapScreen';
 import { SetupNeeded } from './screens/SetupNeeded';
+import { SummaryScreen } from './screens/SummaryScreen';
 import { TrendScreen } from './screens/TrendScreen';
 
 export default function App() {
@@ -16,6 +20,10 @@ export default function App() {
         <Route path="/" element={<DayScreen mode="today" />} />
         <Route path="/history" element={<HistoryScreen />} />
         <Route path="/trend" element={<TrendScreen />} />
+        <Route path="/recap" element={<RecapScreen />} />
+        <Route path="/photos" element={<PhotosScreen />} />
+        <Route path="/summary" element={<SummaryScreen />} />
+        <Route path="/health-setup" element={<HealthSetupScreen />} />
         <Route path="/day/:date" element={<DayScreen mode="date" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
