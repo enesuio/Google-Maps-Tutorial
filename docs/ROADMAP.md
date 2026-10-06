@@ -104,26 +104,26 @@ Work rules for agents: TypeScript strict, every endpoint validated with zod, mig
 
 **Phase 1 (you own T1 and T5; agents can run T2 to T4 in parallel once T1 lands)**
 
-- [ ] **T1 Scaffold.** Monorepo (`api`, `web`), Fastify + TS, docker-compose with Postgres and Redis, migration runner, seed script for 2 users, the challenge row and starter goals. Done when `docker compose up` serves `/health` and the seed is idempotent.
-- [ ] **T2 Auth.** Setup-link endpoint that sets a 1-year httpOnly cookie; middleware that resolves the user. Done when an unauthenticated request gets 401 and a setup link logs in on a phone.
-- [ ] **T3 Check-in API.** `GET /api/today` (both users' goals, values, day number) and `PUT /api/checkins/:date` (upsert). Done when tests cover upsert, the date boundary at 11:59 pm Toronto time, and editing a past day.
-- [ ] **T4 Today screen.** Mobile-first: a card per person, tap to toggle, number inputs, "Day X of 45", plus a history list. Done when a full check-in takes under 30 seconds on an iPhone.
+- [x] **T1 Scaffold.** Monorepo (`api`, `web`), Fastify + TS, docker-compose with Postgres and Redis, migration runner, seed script for 2 users, the challenge row and starter goals. Done when `docker compose up` serves `/health` and the seed is idempotent.
+- [x] **T2 Auth.** Setup-link endpoint that sets a 1-year httpOnly cookie; middleware that resolves the user. Done when an unauthenticated request gets 401 and a setup link logs in on a phone.
+- [x] **T3 Check-in API.** `GET /api/today` (both users' goals, values, day number) and `PUT /api/checkins/:date` (upsert). Done when tests cover upsert, the date boundary at 11:59 pm Toronto time, and editing a past day.
+- [x] **T4 Today screen.** Mobile-first: a card per person, tap to toggle, number inputs, "Day X of 45", plus a history list. Done when a full check-in takes under 30 seconds on an iPhone.
 - [ ] **T5 Deploy.** LXC on Proxmox, Cloudflare Tunnel, nightly `pg_dump`. Done when it loads on cellular data and a restore from backup has been tested once.
 
 **Phase 2**
 
-- [ ] **T6 PWA.** Manifest, icons, service worker. Done when it installs to the iPhone home screen and opens full screen.
-- [ ] **T7 Push.** Subscription endpoint, VAPID, BullMQ jobs: 9 pm reminder if not checked in, notify partner on check-in. Done when both pushes arrive on an installed PWA.
-- [ ] **T8 Cheers.** Emoji plus optional note, shown on the receiver's card, triggers a push.
-- [ ] **T9 Streaks.** Computed from check-ins, breaks only after two missed days in a row. Done when unit tests cover gaps of 1, 2 and 3 days.
-- [ ] **T10 Weight trend.** Body metrics entry and a 7-day average line, visible to both of you by default.
+- [x] **T6 PWA.** Manifest, icons, service worker. Done when it installs to the iPhone home screen and opens full screen.
+- [x] **T7 Push.** Subscription endpoint, VAPID, BullMQ jobs: 9 pm reminder if not checked in, notify partner on check-in. Done when both pushes arrive on an installed PWA.
+- [x] **T8 Cheers.** Emoji plus optional note, shown on the receiver's card, triggers a push.
+- [x] **T9 Streaks.** Computed from check-ins, breaks only after two missed days in a row. Done when unit tests cover gaps of 1, 2 and 3 days.
+- [x] **T10 Weight trend.** Body metrics entry and a 7-day average line, visible to both of you by default.
 
 **Phase 3 and 4**
 
-- [ ] **T11 Health import.** `POST /api/import` with a per-user token, plus written steps to build the iOS Shortcut automation.
-- [ ] **T12 Weekly recap.** Sunday 7 pm job that builds and pushes each person's week.
-- [ ] **T13 Milestones.** Days 7, 15, 30 and 45, plus the team ring.
-- [ ] **T14 Photos and measurements.** Upload to disk, private by default.
+- [x] **T11 Health import.** `POST /api/import` with a per-user token, plus written steps to build the iOS Shortcut automation.
+- [x] **T12 Weekly recap.** Sunday 7 pm job that builds and pushes each person's week.
+- [x] **T13 Milestones.** Days 7, 15, 30 and 45, plus the team ring.
+- [x] **T14 Photos and measurements.** Upload to disk, private by default.
 - [ ] **T15 Day 45 summary.** Start vs end numbers, totals, best streaks, cheers sent.
 - [ ] **T16 Export.** JSON and CSV download of all data.
 

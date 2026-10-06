@@ -4,7 +4,7 @@ import { api, setUnauthenticated } from '../api/client';
 
 interface Props {
   /** Which nav link to show (the one you are not on). */
-  current: 'today' | 'history' | 'day' | 'trend';
+  current: 'today' | 'history' | 'day' | 'trend' | 'recap' | 'photos' | 'other';
 }
 
 export function Footer({ current }: Props) {
@@ -29,6 +29,8 @@ export function Footer({ current }: Props) {
         {current !== 'today' && <Link to="/">Today</Link>}
         {current !== 'history' && <Link to="/history">History</Link>}
         {current !== 'trend' && <Link to="/trend">Trend</Link>}
+        {current !== 'recap' && <Link to="/recap">Recap</Link>}
+        {current !== 'photos' && <Link to="/photos">Photos</Link>}
       </nav>
       <button type="button" className="link-button" onClick={signOut} disabled={busy}>
         Sign out

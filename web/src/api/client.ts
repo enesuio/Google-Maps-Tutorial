@@ -2,14 +2,19 @@ import type {
   Cheer,
   DayView,
   HistoryView,
+  ImportStatus,
   Me,
   MetricsView,
+  Photo,
+  PhotosView,
   PostCheerBody,
   PushStatus,
   PushSubscriptionBody,
   PutCheckinsBody,
   PutMetricsBody,
   PutMetricsSharingBody,
+  RecapView,
+  TeamView,
 } from './types';
 
 export class ApiError extends Error {
@@ -73,7 +78,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     credentials: 'same-origin',
     headers: { Accept: 'application/json' },
   };
-  if (body !== undefined) {
+  if (body instanceof FormData) {
+    init.body = body; // the browser sets the multipart boundary itself
+  } else if (body !== undefined) {
     init.headers = { ...init.headers, 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body);
   }
@@ -116,11 +123,27 @@ export const api = {
   pushSubscribe: (body: PushSubscriptionBody) => request<{ ok: true }>('POST', '/api/push/subscribe', body),
   pushUnsubscribe: (endpoint: string) => request<void>('DELETE', '/api/push/subscribe', { endpoint }),
   pushTest: () => request<void>('POST', '/api/push/test'),
+
+  // ---- Phase 3 ----
+  importStatus: () => request<ImportStatus>('GET', '/api/import/status'),
+  createImportToken: () => request<{ token: string }>('POST', '/api/import/token'),
+  deleteImportToken: () => request<void>('DELETE', '/api/import/token'),
+  recap: (week?: string) =>
+    request<RecapView>('GET', week ? `/api/recap?week=${encodeURIComponent(week)}` : '/api/recap'),
+  team: () => request<TeamView>('GET', '/api/team'),
+  photos: () => request<PhotosView>('GET', '/api/photos'),
+  /** Multipart upload: fields `date`, `kind`, file `photo`. */
+  uploadPhoto: (form: FormData) => request<Photo>('POST', '/api/photos', form),
+  deletePhoto: (id: number) => request<void>('DELETE', `/api/photos/${id}`),
 };
+
+/** Max photo upload the API accepts (docs/API.md, T14). Checked client-side before uploading. */
+export const PHOTO_MAX_BYTES = 12 * 1024 * 1024;
 
 /** Human-friendly text for an ApiError (used by toasts and inline messages). */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.status === 413) return 'That photo is too large (max 12 MB).';
     switch (err.code) {
       case 'future_date':
         return "That day hasn't happened yet.";
@@ -134,6 +157,12 @@ export function describeError(err: unknown): string {
         return 'That request was not valid.';
       case 'push_disabled':
         return 'Notifications are not configured on the server.';
+      case 'auto_goal':
+        return 'That goal is filled from Apple Health, not by hand.';
+      case 'bad_token':
+        return 'That import token is not valid any more.';
+      case 'not_found':
+        return "That isn't there any more.";
       default:
         return err.message || 'Something went wrong.';
     }
