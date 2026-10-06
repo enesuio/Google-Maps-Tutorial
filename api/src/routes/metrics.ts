@@ -3,19 +3,36 @@ import { sql } from 'kysely';
 import { z } from 'zod';
 import { dateSchema, todayInToronto } from '../dates.js';
 import { badRequest } from '../errors.js';
-import { WAIST_CM_MAX, WAIST_CM_MIN, WEIGHT_KG_MAX, WEIGHT_KG_MIN, buildMetricsView } from '../metrics.js';
+import { MEASUREMENT_CM_MAX, MEASUREMENT_CM_MIN, WEIGHT_KG_MAX, WEIGHT_KG_MIN, buildMetricsView } from '../metrics.js';
 import { parse } from '../validate.js';
 import { loadChallenge } from '../views.js';
 import { me, type RouteContext } from './context.js';
 
 const rangeQuery = z.object({ from: dateSchema.optional(), to: dateSchema.optional() });
 const dateParams = z.object({ date: dateSchema });
+const cm = z.number().finite().min(MEASUREMENT_CM_MIN).max(MEASUREMENT_CM_MAX).nullable().optional();
 const putMetricsBody = z
   .object({
     weightKg: z.number().finite().min(WEIGHT_KG_MIN).max(WEIGHT_KG_MAX).nullable().optional(),
-    waistCm: z.number().finite().min(WAIST_CM_MIN).max(WAIST_CM_MAX).nullable().optional(),
+    waistCm: cm,
+    hipsCm: cm,
+    chestCm: cm,
+    armCm: cm,
+    thighCm: cm,
   })
   .strict();
+
+/** Body key → body_metrics column. */
+const COLUMNS = {
+  weightKg: 'weight_kg',
+  waistCm: 'waist_cm',
+  hipsCm: 'hips_cm',
+  chestCm: 'chest_cm',
+  armCm: 'arm_cm',
+  thighCm: 'thigh_cm',
+} as const;
+type BodyKey = keyof typeof COLUMNS;
+type Column = (typeof COLUMNS)[BodyKey];
 const sharingBody = z.object({ shared: z.boolean() }).strict();
 
 export async function metricsRoutes(api: FastifyInstance, ctx: RouteContext): Promise<void> {
@@ -48,14 +65,20 @@ export async function metricsRoutes(api: FastifyInstance, ctx: RouteContext): Pr
     await db.transaction().execute(async (trx) => {
       const existing = await trx
         .selectFrom('body_metrics')
-        .select(['weight_kg', 'waist_cm'])
+        .select(Object.values(COLUMNS))
         .where('user_id', '=', user.id)
         .where('date', '=', date)
         .executeTakeFirst();
       // Omitted fields keep their stored value; null clears.
-      const weight = body.weightKg === undefined ? (existing?.weight_kg ?? null) : body.weightKg;
-      const waist = body.waistCm === undefined ? (existing?.waist_cm ?? null) : body.waistCm;
-      if (weight === null && waist === null) {
+      const next: Record<Column, number | string | null> = {
+        weight_kg: null, waist_cm: null, hips_cm: null, chest_cm: null, arm_cm: null, thigh_cm: null,
+      };
+      for (const key of Object.keys(COLUMNS) as BodyKey[]) {
+        const column = COLUMNS[key];
+        next[column] = body[key] === undefined ? (existing?.[column] ?? null) : body[key];
+      }
+      // A row with all six values cleared is removed.
+      if (Object.values(next).every((v) => v === null)) {
         if (existing) {
           await trx.deleteFrom('body_metrics').where('user_id', '=', user.id).where('date', '=', date).execute();
         }
@@ -63,10 +86,8 @@ export async function metricsRoutes(api: FastifyInstance, ctx: RouteContext): Pr
       }
       await trx
         .insertInto('body_metrics')
-        .values({ user_id: user.id, date, weight_kg: weight, waist_cm: waist })
-        .onConflict((oc) =>
-          oc.columns(['user_id', 'date']).doUpdateSet({ weight_kg: weight, waist_cm: waist, updated_at: sql`now()` }),
-        )
+        .values({ user_id: user.id, date, ...next })
+        .onConflict((oc) => oc.columns(['user_id', 'date']).doUpdateSet({ ...next, updated_at: sql`now()` }))
         .execute();
     });
 

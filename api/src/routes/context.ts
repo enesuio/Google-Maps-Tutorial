@@ -15,6 +15,8 @@ export interface RouteContext {
   sender: PushSender;
   /** True when VAPID keys are present and the job queue is on. */
   pushEnabled: boolean;
+  /** Absolute photo storage directory (UPLOADS_DIR), created on boot. */
+  uploadsDir: string;
 }
 
 /** The session user set by the /api preHandler; throws 401 if somehow missing. */

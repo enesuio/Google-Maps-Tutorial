@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyCookie from '@fastify/cookie';
@@ -15,6 +16,7 @@ import {
   findSessionUser,
   type SessionUser,
 } from './auth.js';
+import { writeCheckins, type CheckinWrite } from './checkins.js';
 import { loadConfig, vapidFromConfig, type Config } from './config.js';
 import { dateSchema, todayInToronto } from './dates.js';
 import { createDb, createPool, type Db } from './db.js';
@@ -23,8 +25,12 @@ import { createJobs, type Jobs } from './push/queue.js';
 import { NoopSender, WebPushSender, type PushSender } from './push/sender.js';
 import { cheerRoutes } from './routes/cheers.js';
 import { me, type RouteContext } from './routes/context.js';
+import { importIngestRoute, importRoutes } from './routes/import.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { photoRoutes } from './routes/photos.js';
 import { pushRoutes } from './routes/push.js';
+import { recapRoutes } from './routes/recap.js';
+import { teamRoutes } from './routes/team.js';
 import { parse } from './validate.js';
 import { buildDayView, buildHistoryView, loadChallenge, type DayView } from './views.js';
 
@@ -86,7 +92,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     opts.jobs ??
     createJobs({ db, sender, now, redisUrl: config.REDIS_URL, vapidConfigured: vapid !== null, logger: app.log });
   const pushEnabled = vapid !== null && jobs.enabled;
-  const ctx: RouteContext = { db, config, now, jobs, sender, pushEnabled };
+
+  // ---- Photo storage (T14): created on boot so the first upload never fails on a missing dir ----
+  const uploadsDir = path.resolve(config.UPLOADS_DIR);
+  await mkdir(uploadsDir, { recursive: true });
+
+  const ctx: RouteContext = { db, config, now, jobs, sender, pushEnabled, uploadsDir };
 
   app.decorateRequest('user', null);
   app.decorateRequest('sessionId', null);
@@ -195,52 +206,22 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         }
         const myGoals = await db
           .selectFrom('goals')
-          .select('id')
+          .select(['id', 'source'])
           .where('user_id', '=', user.id)
           .where('active', '=', true)
           .execute();
-        const allowed = new Set(myGoals.map((g) => g.id));
+        const allowed = new Map(myGoals.map((g) => [g.id, g.source]));
         const bad = body.entries.find((e) => !allowed.has(e.goalId));
         if (bad) throw badRequest('not_your_goal', `Goal ${bad.goalId} is not one of your active goals.`);
+        // Goals with a Health source are filled by the import, never by hand.
+        const auto = body.entries.find((e) => allowed.get(e.goalId) !== 'manual');
+        if (auto) throw badRequest('auto_goal', `Goal ${auto.goalId} is filled from Apple Health.`);
 
-        const countEntries = async (q: Db) => {
-          const row = await q
-            .selectFrom('checkins')
-            .select(sql<string>`count(*)`.as('n'))
-            .where('user_id', '=', user.id)
-            .where('date', '=', date)
-            .executeTakeFirstOrThrow();
-          return Number(row.n);
-        };
-
-        const { before, after } = await db.transaction().execute(async (trx) => {
-          const before = await countEntries(trx);
-          for (const entry of body.entries) {
-            if (entry.value === null) {
-              await trx
-                .deleteFrom('checkins')
-                .where('user_id', '=', user.id)
-                .where('date', '=', date)
-                .where('goal_id', '=', entry.goalId)
-                .execute();
-              continue;
-            }
-            const value = typeof entry.value === 'boolean' ? (entry.value ? 1 : 0) : entry.value;
-            await trx
-              .insertInto('checkins')
-              .values({ user_id: user.id, date, goal_id: entry.goalId, value })
-              .onConflict((oc) =>
-                oc.columns(['user_id', 'date', 'goal_id']).doUpdateSet({ value, updated_at: sql`now()` }),
-              )
-              .execute();
-          }
-          return { before, after: await countEntries(trx) };
-        });
-
-        // First entry of today → tell the partner (never for backfills or later edits).
-        if (date === today && before === 0 && after > 0) {
-          await jobs.enqueue('partner-checkin', { userId: user.id, date });
-        }
+        const entries: CheckinWrite[] = body.entries.map((e) => ({
+          goalId: e.goalId,
+          value: e.value === null ? null : typeof e.value === 'boolean' ? (e.value ? 1 : 0) : e.value,
+        }));
+        await writeCheckins(db, jobs, user.id, date, today, entries);
 
         const view: DayView = await buildDayView(db, user.id, date, today);
         return view;
@@ -254,9 +235,16 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       await cheerRoutes(api, ctx);
       await metricsRoutes(api, ctx);
       await pushRoutes(api, ctx);
+      await importRoutes(api, ctx);
+      await recapRoutes(api, ctx);
+      await teamRoutes(api, ctx);
+      await photoRoutes(api, ctx);
     },
     { prefix: '/api' },
   );
+
+  // ---- Bearer-token /api/import (T11): its own context, so the cookie hook above never runs for it ----
+  await importIngestRoute(app, ctx);
 
   // ---- Static web build (production) with SPA fallback ----
   const webDist = opts.webDist ?? WEB_DIST;

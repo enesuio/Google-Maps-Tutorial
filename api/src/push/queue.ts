@@ -6,7 +6,16 @@ import type { PushSender } from './sender.js';
 
 export const QUEUE_NAME = 'hydrox';
 export const EVENING_REMINDER_PATTERN = '0 21 * * *';
+export const WEEKLY_RECAP_PATTERN = '0 19 * * 0';
+export const MILESTONE_PATTERN = '0 9 * * *';
 export const TORONTO_TZ = 'America/Toronto';
+
+/** The repeatable jobs, each registered as a BullMQ job scheduler keyed by its name. */
+export const SCHEDULED_JOBS: ReadonlyArray<{ name: 'evening-reminder' | 'weekly-recap' | 'milestone'; pattern: string }> = [
+  { name: 'evening-reminder', pattern: EVENING_REMINDER_PATTERN },
+  { name: 'weekly-recap', pattern: WEEKLY_RECAP_PATTERN },
+  { name: 'milestone', pattern: MILESTONE_PATTERN },
+];
 
 export interface Jobs {
   /** False when REDIS_URL or VAPID is missing; `enqueue` is then a no-op. */
@@ -33,7 +42,7 @@ export interface CreateJobsOptions {
   logger?: JobsLogger;
   /** Queue name override (tests use a unique one). */
   queueName?: string;
-  /** Register the repeatable evening reminder (default true). */
+  /** Register the repeatable jobs (evening reminder, weekly recap, milestone; default true). */
   schedule?: boolean;
 }
 
@@ -54,8 +63,8 @@ function jobIdFor<N extends JobName>(name: N, data: JobData[N]): string | undefi
 }
 
 /**
- * BullMQ queue + in-process worker on the `hydrox` queue, with the repeatable 21:00 Toronto
- * evening reminder. Returns a disabled stub (one warning, no-op enqueue) when Redis or VAPID
+ * BullMQ queue + in-process worker on the `hydrox` queue, with the repeatable Toronto-time jobs
+ * (21:00 evening reminder, Sunday 19:00 weekly recap, 09:00 milestone). Returns a disabled stub (one warning, no-op enqueue) when Redis or VAPID
  * is not configured, so every other feature keeps working.
  */
 export function createJobs(opts: CreateJobsOptions): Jobs {
@@ -114,14 +123,14 @@ export function createJobs(opts: CreateJobsOptions): Jobs {
   });
 
   if (opts.schedule ?? true) {
-    queue
-      .upsertJobScheduler(
-        'evening-reminder',
-        { pattern: EVENING_REMINDER_PATTERN, tz: TORONTO_TZ },
-        { name: 'evening-reminder', data: {} },
-      )
-      .then(() => log.info({ pattern: EVENING_REMINDER_PATTERN, tz: TORONTO_TZ }, 'evening reminder scheduled'))
-      .catch((err: unknown) => log.error({ err: err instanceof Error ? err.message : String(err) }, 'could not schedule the evening reminder'));
+    for (const job of SCHEDULED_JOBS) {
+      queue
+        .upsertJobScheduler(job.name, { pattern: job.pattern, tz: TORONTO_TZ }, { name: job.name, data: {} })
+        .then(() => log.info({ job: job.name, pattern: job.pattern, tz: TORONTO_TZ }, 'repeatable job scheduled'))
+        .catch((err: unknown) =>
+          log.error({ job: job.name, err: err instanceof Error ? err.message : String(err) }, 'could not schedule the repeatable job'),
+        );
+    }
   }
 
   return {

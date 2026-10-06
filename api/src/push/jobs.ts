@@ -1,14 +1,18 @@
-import { dayNumber, todayInToronto } from '../dates.js';
+import { addDays, dayNumber, todayInToronto } from '../dates.js';
 import type { Db } from '../db.js';
+import { buildRecap, challengeEndDate, recapPushBody, weekStartOf } from '../recap.js';
+import { MILESTONES, buildTeamView, milestonePushBody } from '../team.js';
 import { loadChallenge } from '../views.js';
 import type { PushPayload, PushSender } from './sender.js';
-import { sendToUser } from './subscriptions.js';
+import { hasSubscription, sendToUser } from './subscriptions.js';
 
 /** Job names on the `hydrox` queue and their data (docs/API.md). */
 export interface JobData {
   'evening-reminder': Record<string, never>;
   'partner-checkin': { userId: number; date: string };
   cheer: { cheerId: number };
+  'weekly-recap': Record<string, never>;
+  milestone: Record<string, never>;
 }
 export type JobName = keyof JobData;
 
@@ -86,6 +90,54 @@ export async function handleCheer(db: Db, sender: PushSender, _now: Date, data: 
   });
 }
 
+/**
+ * Sunday 19:00 Toronto: each subscribed user gets their recap of the week containing today
+ * ("Week N: 6 of 7 days, 18 goals hit. Agnes: 5 of 7." — own numbers first, partner's days only,
+ * never weight). Silent when the week does not overlap the challenge.
+ */
+export async function handleWeeklyRecap(db: Db, sender: PushSender, now: Date): Promise<void> {
+  const today = todayInToronto(now);
+  const challenge = await loadChallenge(db);
+  const weekStart = weekStartOf(today);
+  if (addDays(weekStart, 6) < challenge.startDate || weekStart > challengeEndDate(challenge)) return;
+
+  const users = await db.selectFrom('users').select('id').orderBy('id', 'asc').execute();
+  for (const user of users) {
+    if (!(await hasSubscription(db, user.id))) continue;
+    const view = await buildRecap(db, user.id, weekStart, today);
+    await sendToUser(db, sender, user.id, {
+      title: APP_TITLE,
+      body: recapPushBody(view),
+      url: `/recap?week=${weekStart}`,
+      tag: `recap-${weekStart}`,
+    });
+  }
+}
+
+/**
+ * 09:00 Toronto daily: on day 7, 15, 30 or 45 every subscribed user hears how far the team got
+ * ("Day 7 — one week in. Together you've logged 13 of 14 days."). Silent on every other day.
+ */
+export async function handleMilestone(db: Db, sender: PushSender, now: Date): Promise<void> {
+  const today = todayInToronto(now);
+  const challenge = await loadChallenge(db);
+  const day = dayNumber(today, challenge.startDate);
+  const milestone = MILESTONES.find((m) => m.day === day);
+  if (!milestone || day > challenge.lengthDays) return;
+
+  const users = await db.selectFrom('users').select('id').orderBy('id', 'asc').execute();
+  const first = users[0];
+  if (!first) return;
+  const team = await buildTeamView(db, first.id, today);
+  const payload: PushPayload = {
+    title: APP_TITLE,
+    body: milestonePushBody(day, milestone.phrase, team.ring.done, users.length * day),
+    url: '/',
+    tag: `milestone-${day}`,
+  };
+  for (const user of users) await sendToUser(db, sender, user.id, payload);
+}
+
 /** Dispatches a queued job to its handler. Unknown names are ignored (logged by the worker). */
 export async function runJob<N extends JobName>(
   db: Db,
@@ -101,6 +153,10 @@ export async function runJob<N extends JobName>(
       return handlePartnerCheckin(db, sender, now, data as JobData['partner-checkin']);
     case 'cheer':
       return handleCheer(db, sender, now, data as JobData['cheer']);
+    case 'weekly-recap':
+      return handleWeeklyRecap(db, sender, now);
+    case 'milestone':
+      return handleMilestone(db, sender, now);
     default:
       throw new Error(`Unknown job: ${String(name)}`);
   }

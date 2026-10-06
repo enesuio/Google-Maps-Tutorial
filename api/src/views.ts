@@ -1,4 +1,4 @@
-import type { Db, GoalDirection, GoalKind } from './db.js';
+import type { Db, GoalDirection, GoalKind, GoalSource } from './db.js';
 import { dateRange, dayNumber, isoWeekRange, maxDate, minDate } from './dates.js';
 import { computeStreak, totalCheckins, type Streak } from './streaks.js';
 
@@ -22,6 +22,14 @@ export interface GoalView {
   value: number | null;
   hit: boolean | null;
   weekCount: number | null;
+  /** `manual`, or filled by the Apple Health import (never by hand). */
+  source: GoalSource;
+}
+
+/** What the Apple Health import stored for a day (docs/API.md, T11). */
+export interface HealthDay {
+  steps: number | null;
+  activeKcal: number | null;
 }
 
 export const CHEER_EMOJI = ['👏', '🔥', '💪', '❤️', '😂', '🫡'] as const;
@@ -47,6 +55,8 @@ export interface UserDayView {
   totalCheckins: number;
   /** Cheers received by this user for `date`, oldest first. */
   cheers: Cheer[];
+  /** Imported Health data for `date`; null when nothing was imported. */
+  health: HealthDay | null;
 }
 
 export interface DayView {
@@ -83,6 +93,7 @@ interface GoalRow {
   daily_target: string | null;
   weekly_target: string | null;
   sort: number;
+  source: GoalSource;
 }
 
 interface UserRow {
@@ -123,7 +134,7 @@ async function loadUsers(db: Db, meId: number): Promise<UserRow[]> {
 async function loadActiveGoals(db: Db): Promise<GoalRow[]> {
   return db
     .selectFrom('goals')
-    .select(['id', 'user_id', 'key', 'label', 'kind', 'unit', 'direction', 'daily_target', 'weekly_target', 'sort'])
+    .select(['id', 'user_id', 'key', 'label', 'kind', 'unit', 'direction', 'daily_target', 'weekly_target', 'sort', 'source'])
     .where('active', '=', true)
     .orderBy('sort', 'asc')
     .orderBy('id', 'asc')
@@ -175,6 +186,16 @@ async function loadCheers(db: Db, date: string): Promise<Cheer[]> {
   return rows.map(cheerView);
 }
 
+/** Per user, the Health import row for `date` (T11). */
+async function loadHealth(db: Db, date: string): Promise<Map<number, HealthDay>> {
+  const rows = await db
+    .selectFrom('health_daily')
+    .select(['user_id', 'steps', 'active_kcal'])
+    .where('date', '=', date)
+    .execute();
+  return new Map(rows.map((r) => [r.user_id, { steps: r.steps, activeKcal: toNumber(r.active_kcal) }]));
+}
+
 /** Per user, the set of dates in [from, to] with at least one check-in. */
 export async function loadEnteredDates(db: Db, from: string, to: string): Promise<Map<number, Set<string>>> {
   const map = new Map<number, Set<string>>();
@@ -209,17 +230,19 @@ function goalView(goal: GoalRow, value: number | null, weekCount: number | null)
     value,
     hit: isHit({ kind: goal.kind, direction: goal.direction, dailyTarget }, value),
     weekCount,
+    source: goal.source,
   };
 }
 
 export async function buildDayView(db: Db, meId: number, date: string, today: string): Promise<DayView> {
   const week = isoWeekRange(date);
-  const [challenge, users, goals, checkins, cheers] = await Promise.all([
+  const [challenge, users, goals, checkins, cheers, health] = await Promise.all([
     loadChallenge(db),
     loadUsers(db, meId),
     loadActiveGoals(db),
     loadCheckins(db, week.start, week.end),
     loadCheers(db, date),
+    loadHealth(db, date),
   ]);
   const entered = await loadEnteredDates(db, challenge.startDate, today);
   const weekDays = dateRange(week.start, week.end);
@@ -232,6 +255,7 @@ export async function buildDayView(db: Db, meId: number, date: string, today: st
     streak: computeStreak(entered.get(u.id) ?? new Set(), challenge.startDate, today),
     totalCheckins: totalCheckins(entered.get(u.id) ?? new Set(), challenge.startDate, today),
     cheers: cheers.filter((c) => c.toUserId === u.id),
+    health: health.get(u.id) ?? null,
     goals: goals
       .filter((g) => g.user_id === u.id)
       .map((g) => {

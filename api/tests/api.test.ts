@@ -124,7 +124,7 @@ describe('GET /api/today', () => {
       ['enes', false],
     ]);
     const enes = view.users[1]!;
-    expect(enes.goals.map((g) => g.key)).toEqual(['walk', 'kcal', 'protein']); // strength inactive
+    expect(enes.goals.map((g) => g.key)).toEqual(['walk', 'kcal', 'protein', 'steps']); // strength inactive
     const kcal = enes.goals[1]!;
     expect(kcal).toMatchObject({
       kind: 'number',
@@ -135,13 +135,17 @@ describe('GET /api/today', () => {
       value: null,
       hit: null,
       weekCount: null,
+      source: 'manual',
     });
+    expect(enes.goals[3]).toMatchObject({ key: 'steps', source: 'health_steps', dailyTarget: 8000, value: null });
     const f45 = view.users[0]!.goals[0]!;
     expect(f45).toMatchObject({ key: 'f45', kind: 'bool', weeklyTarget: 3, value: null, hit: null, weekCount: 0 });
     // Phase 2 fields are present with empty history.
     expect(enes.streak).toEqual({ current: 0, best: 0, graceUsed: false });
     expect(enes.totalCheckins).toBe(0);
     expect(enes.cheers).toEqual([]);
+    // Phase 3: nothing imported yet.
+    expect(enes.health).toBeNull();
   });
 
   it('day boundary: 23:59 Toronto on Oct 6 is still day 1; 00:00 is day 2', async () => {
@@ -277,6 +281,15 @@ describe('PUT /api/checkins/:date', () => {
     res = await put(cookie, '2026-10-10', [{ goalId: 99999, value: true }]);
     expect(codeOf(res)).toBe('not_your_goal');
 
+    // A Health-filled goal is never entered by hand (Phase 3).
+    res = await put(cookie, '2026-10-10', [
+      { goalId: walk, value: true },
+      { goalId: await goalId('enes', 'steps'), value: 9000 },
+    ]);
+    expect(res.statusCode).toBe(400);
+    expect(codeOf(res)).toBe('auto_goal');
+    expect(res.body).toContain('Apple Health');
+
     expect(await db.selectFrom('checkins').select('goal_id').execute()).toHaveLength(0);
   });
 
@@ -376,12 +389,12 @@ describe('GET /api/history', () => {
     const partnerId = await userId('agnes');
     const byDate = Object.fromEntries(view.days.map((d) => [d.date, d]));
     expect(byDate['2026-10-06']!.users).toEqual([
-      { userId: enesId, hit: 3, total: 3, entered: true },
-      { userId: partnerId, hit: 0, total: 4, entered: false },
+      { userId: enesId, hit: 3, total: 4, entered: true },
+      { userId: partnerId, hit: 0, total: 5, entered: false },
     ]);
-    expect(byDate['2026-10-08']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 3, entered: true });
-    expect(byDate['2026-10-07']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 3, entered: false });
-    expect(byDate['2026-10-10']!.users[1]).toEqual({ userId: partnerId, hit: 1, total: 4, entered: true });
+    expect(byDate['2026-10-08']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 4, entered: true });
+    expect(byDate['2026-10-07']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 4, entered: false });
+    expect(byDate['2026-10-10']!.users[1]).toEqual({ userId: partnerId, hit: 1, total: 5, entered: true });
   });
 
   it('clamps from/to to [startDate, today] and validates them', async () => {
@@ -425,14 +438,17 @@ describe('seed', () => {
       return { users: Number(u.n), challenges: Number(c.n), goals: Number(g.n) };
     };
     const before = await counts();
-    expect(before).toEqual({ users: 2, challenges: 1, goals: 8 });
+    expect(before).toEqual({ users: 2, challenges: 1, goals: 10 });
     const ids = await db.selectFrom('goals').select(['id', 'key', 'user_id']).orderBy('id').execute();
     await runSeed(db);
     await runSeed(db);
     expect(await counts()).toEqual(before);
     expect(await db.selectFrom('goals').select(['id', 'key', 'user_id']).orderBy('id').execute()).toEqual(ids);
-    const strength = await db.selectFrom('goals').select(['active', 'unit', 'daily_target']).where('key', '=', 'strength').executeTakeFirstOrThrow();
-    expect(strength).toEqual({ active: false, unit: null, daily_target: null });
+    const strength = await db.selectFrom('goals').select(['active', 'unit', 'daily_target', 'source']).where('key', '=', 'strength').executeTakeFirstOrThrow();
+    expect(strength).toEqual({ active: false, unit: null, daily_target: null, source: 'manual' });
+    // `source` is read from the seed file (default manual).
+    const sources = await db.selectFrom('goals').select('source').where('key', '=', 'steps').execute();
+    expect(sources).toEqual([{ source: 'health_steps' }, { source: 'health_steps' }]);
   });
 });
 

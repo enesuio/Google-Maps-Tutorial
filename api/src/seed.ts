@@ -18,6 +18,8 @@ const goalSchema = z.object({
   weeklyTarget: z.number().nullable().default(null),
   sort: z.number().int().default(0),
   active: z.boolean().default(true),
+  /** `manual` (default) or filled by the Apple Health import; see docs/API.md Phase 3. */
+  source: z.enum(['manual', 'health_steps', 'health_active_kcal']).default('manual'),
 });
 
 export const seedSchema = z.object({
@@ -104,6 +106,7 @@ export async function runSeed(db: Db, input?: SeedInput): Promise<void> {
           weekly_target: goal.weeklyTarget,
           sort: goal.sort,
           active: goal.active,
+          source: goal.source,
         };
         await trx
           .insertInto('goals')
