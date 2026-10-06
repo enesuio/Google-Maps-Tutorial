@@ -44,10 +44,10 @@ function jobIdFor<N extends JobName>(name: N, data: JobData[N]): string | undefi
   switch (name) {
     case 'partner-checkin': {
       const d = data as JobData['partner-checkin'];
-      return `partner-checkin:${d.userId}:${d.date}`;
+      return `partner-checkin-${d.userId}-${d.date}`; // BullMQ forbids ':' in custom ids
     }
     case 'cheer':
-      return `cheer:${(data as JobData['cheer']).cheerId}`;
+      return `cheer-${(data as JobData['cheer']).cheerId}`;
     default:
       return undefined;
   }
@@ -128,7 +128,12 @@ export function createJobs(opts: CreateJobsOptions): Jobs {
     enabled: true,
     async enqueue(name, data) {
       const jobId = jobIdFor(name, data);
-      await queue.add(name, data, jobId ? { jobId } : {});
+      // A push problem must never fail the request that triggered it; the data is already saved.
+      try {
+        await queue.add(name, data, jobId ? { jobId } : {});
+      } catch (err: unknown) {
+        log.error({ job: name, err: err instanceof Error ? err.message : String(err) }, 'could not enqueue job');
+      }
     },
     async close() {
       await worker.close();

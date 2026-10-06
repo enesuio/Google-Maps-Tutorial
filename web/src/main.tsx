@@ -11,6 +11,16 @@ async function boot() {
     installMockApi();
   }
 
+  // Service worker (T6): production only, so dev/HMR never fights a cache. Updates apply on
+  // the next open thanks to skipWaiting + clients.claim in sw.js.
+  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err: unknown) => {
+        console.warn('Service worker registration failed', err);
+      });
+    });
+  }
+
   const root = document.getElementById('root');
   if (!root) throw new Error('#root missing');
   createRoot(root).render(

@@ -85,14 +85,15 @@ describe('parseNumberInput', () => {
 });
 
 describe('applyValue', () => {
+  const noStreak = { current: 0, best: 0, graceUsed: false };
   const view: DayView = {
     date: '2026-10-08',
     day: 3,
     today: '2026-10-08',
     challenge: { name: 'Hydrox 45', startDate: '2026-10-06', lengthDays: 45 },
     users: [
-      { id: 1, slug: 'enes', name: 'Enes', isMe: true, goals: [walk, kcal] },
-      { id: 2, slug: 'partner', name: 'Partner', isMe: false, goals: [f45] },
+      { id: 1, slug: 'enes', name: 'Enes', isMe: true, goals: [walk, kcal], streak: noStreak, totalCheckins: 0, cheers: [] },
+      { id: 2, slug: 'partner', name: 'Partner', isMe: false, goals: [f45], streak: noStreak, totalCheckins: 0, cheers: [] },
     ],
   };
 

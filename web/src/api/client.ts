@@ -1,4 +1,16 @@
-import type { DayView, HistoryView, Me, PutCheckinsBody } from './types';
+import type {
+  Cheer,
+  DayView,
+  HistoryView,
+  Me,
+  MetricsView,
+  PostCheerBody,
+  PushStatus,
+  PushSubscriptionBody,
+  PutCheckinsBody,
+  PutMetricsBody,
+  PutMetricsSharingBody,
+} from './types';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -79,7 +91,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) throw await readError(res);
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (!text) return undefined as T; // e.g. 202 Accepted with an empty body
+  return JSON.parse(text) as T;
 }
 
 export const api = {
@@ -90,6 +104,18 @@ export const api = {
   putCheckins: (date: string, body: PutCheckinsBody) =>
     request<DayView>('PUT', `/api/checkins/${encodeURIComponent(date)}`, body),
   logout: () => request<void>('POST', '/api/logout'),
+
+  // ---- Phase 2 ----
+  postCheer: (body: PostCheerBody) => request<Cheer>('POST', '/api/cheers', body),
+  deleteCheer: (id: number) => request<void>('DELETE', `/api/cheers/${id}`),
+  metrics: () => request<MetricsView>('GET', '/api/metrics'),
+  putMetrics: (date: string, body: PutMetricsBody) =>
+    request<MetricsView>('PUT', `/api/metrics/${encodeURIComponent(date)}`, body),
+  putMetricsSharing: (body: PutMetricsSharingBody) => request<MetricsView>('PUT', '/api/metrics/sharing', body),
+  pushStatus: () => request<PushStatus>('GET', '/api/push/status'),
+  pushSubscribe: (body: PushSubscriptionBody) => request<{ ok: true }>('POST', '/api/push/subscribe', body),
+  pushUnsubscribe: (endpoint: string) => request<void>('DELETE', '/api/push/subscribe', { endpoint }),
+  pushTest: () => request<void>('POST', '/api/push/test'),
 };
 
 /** Human-friendly text for an ApiError (used by toasts and inline messages). */
@@ -106,6 +132,8 @@ export function describeError(err: unknown): string {
         return err.message;
       case 'bad_request':
         return 'That request was not valid.';
+      case 'push_disabled':
+        return 'Notifications are not configured on the server.';
       default:
         return err.message || 'Something went wrong.';
     }

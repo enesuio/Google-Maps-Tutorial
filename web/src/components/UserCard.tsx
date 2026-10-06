@@ -1,6 +1,8 @@
 import type { UserDayView } from '../api/types';
 import { summarize, summaryLabel } from '../lib/goals';
+import { CheerBar, CheerChips } from './Cheers';
 import { GoalRow } from './GoalRow';
+import { StreakBadge } from './StreakBadge';
 
 interface Props {
   user: UserDayView;
@@ -8,9 +10,15 @@ interface Props {
   onChange?: (goalId: number, value: number | null) => void;
   /** "Saving…" / "Saved" / null */
   status?: string | null;
+  /** The signed-in user's id (to tell "from you" apart and allow deleting own cheers). */
+  meId: number;
+  nameOf: (userId: number) => string;
+  /** Partner card only: send a cheer to this user. */
+  onCheer?: (emoji: string, note: string | null) => void;
+  onDeleteCheer?: (id: number) => void;
 }
 
-export function UserCard({ user, editable, onChange, status = null }: Props) {
+export function UserCard({ user, editable, onChange, status = null, meId, nameOf, onCheer, onDeleteCheer }: Props) {
   const summary = summarize(user.goals);
   const title = user.isMe ? 'You' : user.name;
 
@@ -35,6 +43,8 @@ export function UserCard({ user, editable, onChange, status = null }: Props) {
           )}
         </div>
       </header>
+      <StreakBadge streak={user.streak} totalCheckins={user.totalCheckins} />
+      <CheerChips cheers={user.cheers} meId={meId} nameOf={nameOf} {...(onDeleteCheer ? { onDelete: onDeleteCheer } : {})} />
       {user.goals.length === 0 ? (
         <p className="muted card-empty">No goals yet.</p>
       ) : (
@@ -44,6 +54,7 @@ export function UserCard({ user, editable, onChange, status = null }: Props) {
           ))}
         </ul>
       )}
+      {onCheer && !user.isMe && <CheerBar toName={user.name} onCheer={onCheer} />}
     </section>
   );
 }

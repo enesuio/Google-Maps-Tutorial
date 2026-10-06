@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
-import type { DayView } from '../api/types';
+import type { Cheer, DayView } from '../api/types';
 import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
+import { NotificationsSection } from '../components/NotificationsSection';
 import { Toast } from '../components/Toast';
 import { UserCard } from '../components/UserCard';
+import { addCheer, removeCheer, replaceCheer } from '../lib/cheers';
 import { isValidISODate } from '../lib/dates';
 import { applyValue, findGoal } from '../lib/goals';
 
@@ -125,9 +127,58 @@ export function DayScreen({ mode }: Props) {
     [update],
   );
 
+  // ---- cheers: optimistic post / delete ----
+  const cheer = useCallback(
+    async (toUserId: number, emoji: string, note: string | null) => {
+      const current = viewRef.current;
+      if (!current) return;
+      const me = current.users.find((u) => u.isMe);
+      if (!me) return;
+      const temp: Cheer = {
+        id: -Date.now(),
+        fromUserId: me.id,
+        toUserId,
+        date: current.date,
+        emoji,
+        note,
+        createdAt: new Date().toISOString(),
+      };
+      update(addCheer(current, temp));
+      try {
+        const saved = await api.postCheer({ toUserId, date: current.date, emoji, ...(note ? { note } : {}) });
+        const now = viewRef.current;
+        if (now && now.date === current.date) update(replaceCheer(now, temp.id, saved));
+      } catch (err: unknown) {
+        const now = viewRef.current;
+        if (now && now.date === current.date) update(removeCheer(now, temp.id));
+        if (!(err instanceof ApiError && err.status === 401)) setToast(describeError(err));
+      }
+    },
+    [update],
+  );
+
+  const deleteCheer = useCallback(
+    async (id: number) => {
+      const current = viewRef.current;
+      if (!current) return;
+      const existing = current.users.flatMap((u) => u.cheers).find((c) => c.id === id);
+      if (!existing) return;
+      update(removeCheer(current, id));
+      try {
+        await api.deleteCheer(id);
+      } catch (err: unknown) {
+        const now = viewRef.current;
+        if (now && now.date === current.date) update(addCheer(now, existing));
+        if (!(err instanceof ApiError && err.status === 401)) setToast(describeError(err));
+      }
+    },
+    [update],
+  );
+
   const me = view?.users.find((u) => u.isMe) ?? null;
   const others = view?.users.filter((u) => !u.isMe) ?? [];
   const status = inflight > 0 ? 'Saving…' : savedFlash ? 'Saved' : null;
+  const nameOf = (userId: number) => view?.users.find((u) => u.id === userId)?.name ?? 'Partner';
 
   return (
     <div className="app">
@@ -150,12 +201,31 @@ export function DayScreen({ mode }: Props) {
         )}
         {view && (
           <div className="cards">
-            {me && <UserCard user={me} editable onChange={change} status={status} />}
-            {others.map((u) => (
-              <UserCard key={u.id} user={u} editable={false} />
-            ))}
+            {me && (
+              <UserCard
+                user={me}
+                editable
+                onChange={change}
+                status={status}
+                meId={me.id}
+                nameOf={nameOf}
+              />
+            )}
+            {me &&
+              others.map((u) => (
+                <UserCard
+                  key={u.id}
+                  user={u}
+                  editable={false}
+                  meId={me.id}
+                  nameOf={nameOf}
+                  onCheer={(emoji, note) => void cheer(u.id, emoji, note)}
+                  onDeleteCheer={(id) => void deleteCheer(id)}
+                />
+              ))}
           </div>
         )}
+        {view && routeDate === null && <NotificationsSection partnerName={others[0]?.name ?? null} />}
       </main>
       <Footer current={routeDate === null ? 'today' : 'day'} />
       <Toast message={toast} onDismiss={() => setToast(null)} />
