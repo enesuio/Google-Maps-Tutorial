@@ -281,3 +281,153 @@ real Redis at `REDIS_URL` and asserts the fake sender was called.
   Registered in production only. A `skipWaiting`/`clients.claim` so updates apply on next open.
 - The API serves `/manifest.webmanifest` and `/sw.js` from `web/dist` with the right MIME types
   and `Cache-Control: no-cache` for `sw.js`.
+
+---
+
+# Phase 3 additions (T11–T14)
+
+Migration `003_phase3.sql` (append only).
+
+## Schema additions
+
+```sql
+ALTER TABLE goals ADD COLUMN source text NOT NULL DEFAULT 'manual'
+  CHECK (source IN ('manual', 'health_steps', 'health_active_kcal'));
+health_daily(user_id int fk, date date, steps int, active_kcal numeric, source text default 'shortcut',
+             updated_at timestamptz default now(), primary key (user_id, date))
+import_tokens(token text pk, user_id int fk, created_at timestamptz default now(),
+              last_used_at timestamptz, revoked_at timestamptz)   -- one active token per user
+ALTER TABLE body_metrics ADD COLUMN hips_cm numeric, ADD COLUMN chest_cm numeric,
+  ADD COLUMN arm_cm numeric, ADD COLUMN thigh_cm numeric;
+photos(id serial pk, user_id int fk, date date, kind text check (kind in ('start','progress','end')),
+       path text, mime text, bytes int, width int, height int, created_at timestamptz default now())
+```
+
+Seed: `goals[].source` optional (default `manual`). A goal with `source != manual` is filled by the
+Health import, never by hand: `PUT /api/checkins/:date` rejects it
+with 400 `auto_goal` ("filled from Apple Health"). `GoalView` gains `source: GoalSource`.
+
+```ts
+export type GoalSource = "manual" | "health_steps" | "health_active_kcal";
+```
+
+## Health import (T11)
+
+The iOS Shortcut posts once a day (and may post again later the same day; last write wins).
+Auth is a bearer token, not the cookie: `Authorization: Bearer <token>`. Unknown or revoked token
+→ 401 `bad_token`.
+
+```ts
+export interface ImportBody {
+  date?: string;        // YYYY-MM-DD, default Toronto today; must be within [startDate, today]
+  steps?: number;       // integer ≥ 0
+  activeKcal?: number;  // ≥ 0
+}
+export interface ImportResult { date: string; steps: number | null; activeKcal: number | null; goalsUpdated: number }
+export interface ImportStatus {
+  hasToken: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  lastImport: { date: string; steps: number | null; activeKcal: number | null } | null;
+}
+export interface HealthDay { steps: number | null; activeKcal: number | null }
+```
+
+`UserDayView` gains `health: HealthDay | null` (null when nothing imported for that date).
+
+| Method | Path | Auth | Response |
+| --- | --- | --- | --- |
+| POST | `/api/import` | bearer | Upsert `health_daily`; then for each of the caller's active goals with `source = health_steps` / `health_active_kcal`, upsert that day's check-in value from the import (only for fields present in the body). Enqueues `partner-checkin` under the same first-entry rule as manual check-ins. `200 ImportResult`. Also accepts `steps`/`activeKcal` as numeric strings (Shortcuts sends text) — coerce. |
+| GET | `/api/import/status` | cookie | `ImportStatus` |
+| POST | `/api/import/token` | cookie | Revokes the previous token, creates a new one, `201 { token: string }` — shown once |
+| DELETE | `/api/import/token` | cookie | Revokes, `204` |
+
+`docs/HEALTH-IMPORT.md`: step-by-step for the iOS Shortcuts automation (Personal Automation →
+Time of Day 8:30 pm daily → Find Health Samples (Steps, today, sum) → Find Health Samples (Active
+Energy, today, sum) → Get Contents of URL POST JSON with the bearer header → Run Immediately, Notify
+off). Include the exact JSON body and header, how to test it by tapping Run, and what to do if the
+token leaks (rotate from the app).
+
+## Weekly recap (T12)
+
+Weeks run Monday to Sunday in Toronto. The recap for a week is computed on demand from the data,
+not stored.
+
+```ts
+export interface UserRecap {
+  userId: number; name: string; isMe: boolean;
+  daysCheckedIn: number;        // 0–7 (only days within the challenge count toward the denominator)
+  daysInChallenge: number;      // how many of the 7 days fall inside [startDate, min(today, endDate)]
+  goalsHit: number; goalsTotal: number;
+  weeklyGoals: Array<{ goalId: number; label: string; count: number; target: number }>; // e.g. F45 2 of 3
+  streakEnd: number;            // current streak as of the week's last day
+  cheersReceived: number; cheersSent: number;
+  steps: number | null;         // sum of imported steps, null if none
+  weightChangeKg: number | null; // own user only (first vs last entry in the week); null for the partner
+  bestDay: { date: string; hit: number; total: number } | null;
+}
+export interface RecapView {
+  weekStart: string; weekEnd: string;      // Monday, Sunday
+  weekNumber: number;                      // 1-based from the challenge start week
+  dayRange: { from: number; to: number };  // challenge days covered
+  today: string;
+  users: UserRecap[];                      // me first
+  team: { checkins: number; possible: number } // sum over both users for the week
+}
+```
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | `/api/recap` | `RecapView` for `?week=YYYY-MM-DD` (any date in the week; default = the most recent **completed** week, or the current week if the challenge is in its first week). 400 if the week is entirely before `startDate` or after today. |
+
+Job `weekly-recap`: repeatable `0 19 * * 0` America/Toronto (Sunday 7 pm). For each user with
+≥1 subscription: title "Hydrox 45", body "Week N: 6 of 7 days, 18 goals hit. Agnes: 5 of 7." (own
+numbers first, partner's days only, never weight), url `/recap?week=<weekStart>`, tag `recap-<weekStart>`.
+
+## Milestones and the team ring (T13)
+
+```ts
+export interface Milestone { day: number; date: string; label: string; reached: boolean; isToday: boolean }
+export interface TeamView {
+  today: string; day: number; challenge: Challenge;
+  ring: { done: number; target: number };     // done = sum of both users' checked-in days; target = 2 × lengthDays
+  perUser: Array<{ userId: number; name: string; isMe: boolean; checkins: number }>;
+  milestones: Milestone[];                     // days 7, 15, 30, 45 with labels "One week", "A third in", "Two thirds", "Finish line"
+}
+```
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | `/api/team` | `TeamView` |
+
+Job `milestone`: repeatable `0 9 * * *` America/Toronto. If today is day 7, 15, 30 or 45, push to
+every subscribed user: body "Day 7 — one week in. Together you've logged 13 of 14 days." url `/`,
+tag `milestone-<day>`. Handlers are pure functions over the DB like the existing jobs.
+
+## Photos and measurements (T14)
+
+Photos are private: only the owner can list, view or delete them. No sharing in this phase.
+Files live on disk under `UPLOADS_DIR` (env, default `./uploads`; Compose mounts `/app/uploads`),
+named `<userId>/<photoId>.<ext>`, never by the client's filename. Accept `image/jpeg`, `image/png`,
+`image/heic`, `image/webp`, max 12 MB. No resizing (two users, 45 days).
+
+```ts
+export type PhotoKind = "start" | "progress" | "end";
+export interface Photo { id: number; date: string; kind: PhotoKind; mime: string; bytes: number;
+                         width: number | null; height: number | null; createdAt: string; url: string } // url = /api/photos/:id/file
+export interface PhotosView { photos: Photo[] }  // newest first
+```
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | `/api/photos` | `PhotosView` (own) |
+| POST | `/api/photos` | multipart: fields `date`, `kind`, file `photo`. `201 Photo`. 400 `bad_request` on type/size/date; 413 when over the limit |
+| GET | `/api/photos/:id/file` | the bytes with its mime, `Cache-Control: private, max-age=31536000`; 404 unless owner |
+| DELETE | `/api/photos/:id` | `204`, removes the file; 404 unless owner |
+
+Measurements: `PutMetricsBody` and `MetricPoint` gain `hipsCm`, `chestCm`, `armCm`, `thighCm`
+(same null-clears rule; ranges 30–250 cm). They follow the user's existing `metrics_shared` flag.
+`MetricsSeries` gains `latest: { waistCm, hipsCm, chestCm, armCm, thighCm }` (latest non-null each)
+and `start: { same }` (earliest since startDate), own user only; partner gets `null` for both.
+
+Dependency allowed for this phase: `@fastify/multipart` (file uploads). Nothing else.

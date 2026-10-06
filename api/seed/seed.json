@@ -41,6 +41,16 @@
           "kind": "bool",
           "sort": 4,
           "active": false
+        },
+        {
+          "key": "steps",
+          "label": "Steps",
+          "kind": "number",
+          "unit": "steps",
+          "direction": "at_least",
+          "dailyTarget": 8000,
+          "sort": 9,
+          "source": "health_steps"
         }
       ]
     },
@@ -80,6 +90,16 @@
           "label": "Push-up & pull-up practice",
           "kind": "bool",
           "sort": 4
+        },
+        {
+          "key": "steps",
+          "label": "Steps",
+          "kind": "number",
+          "unit": "steps",
+          "direction": "at_least",
+          "dailyTarget": 7000,
+          "sort": 9,
+          "source": "health_steps"
         }
       ]
     }
