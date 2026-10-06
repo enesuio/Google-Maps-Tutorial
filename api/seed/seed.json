@@ -101,6 +101,16 @@
           "sort": 9,
           "source": "health_steps"
         }
+      ],
+      "finishTests": [
+        {
+          "key": "pushups",
+          "label": "3 push-ups"
+        },
+        {
+          "key": "pullup",
+          "label": "1 pull-up"
+        }
       ]
     }
   ]

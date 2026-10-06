@@ -431,3 +431,90 @@ Measurements: `PutMetricsBody` and `MetricPoint` gain `hipsCm`, `chestCm`, `armC
 and `start: { same }` (earliest since startDate), own user only; partner gets `null` for both.
 
 Dependency allowed for this phase: `@fastify/multipart` (file uploads). Nothing else.
+
+---
+
+# Phase 4 additions (T15–T16)
+
+Migration `004_phase4.sql` (append only).
+
+## Schema additions
+
+```sql
+finish_tests(id serial pk, user_id int fk, key text, label text,
+             passed boolean,            -- null = not tested yet
+             result text,               -- free text, e.g. "2 push-ups" (≤ 80 chars)
+             tested_on date, updated_at timestamptz default now(),
+             unique (user_id, key))
+```
+
+Seed: `users[].finishTests?: Array<{ key: string; label: string }>` upserted by `(slug, key)`.
+Agnes: `pushups` "3 push-ups", `pullup` "1 pull-up".
+
+## Day 45 summary (T15)
+
+The summary is available from Day 1 as "so far" and becomes final once `today >= endDate`
+(`endDate = startDate + lengthDays - 1`). Everything is computed on demand. It never ranks the two
+people or compares bodies: body numbers appear for the caller only.
+
+```ts
+export interface FinishTest { id: number; userId: number; key: string; label: string;
+                              passed: boolean | null; result: string | null; testedOn: string | null }
+export interface PutFinishTestBody { passed: boolean | null; result?: string | null; testedOn?: string | null }
+export interface PostFinishTestBody { label: string }   // key derived: slug of label + short random suffix
+
+export interface GoalSummary {
+  goalId: number; label: string; kind: GoalKind; unit: string | null; source: GoalSource;
+  dailyTarget: number | null; weeklyTarget: number | null;
+  enteredDays: number; hitDays: number;
+  average: number | null;          // number goals: mean of entered values
+  weeklyHits: { weeks: number; weeksHit: number; total: number } | null; // weekly goals: weeks with count ≥ target
+}
+export interface BodySummary {      // caller only; null for the partner
+  start: { date: string; weightKg: number | null; waistCm: number | null; hipsCm: number | null; chestCm: number | null; armCm: number | null; thighCm: number | null } | null;
+  latest: { same shape } | null;
+  change: { weightKg: number | null; waistCm: number | null; hipsCm: number | null; chestCm: number | null; armCm: number | null; thighCm: number | null } | null;
+}
+export interface UserSummary {
+  userId: number; name: string; isMe: boolean;
+  daysCheckedIn: number; daysSoFar: number;   // daysSoFar = min(day, lengthDays), 0 before start
+  goalsHit: number; goalsTotal: number;        // over active goals × daysSoFar
+  bestStreak: number; currentStreak: number;
+  cheersSent: number; cheersReceived: number; topEmojiReceived: string | null;
+  steps: { total: number | null; avgPerDay: number | null; bestDay: { date: string; steps: number } | null };
+  goals: GoalSummary[];
+  body: BodySummary | null;
+  photos: { start: Photo | null; end: Photo | null } | null;  // caller only
+  finishTests: FinishTest[];                                  // both users' tests are visible
+}
+export interface SummaryView {
+  challenge: Challenge; today: string; day: number; endDate: string; complete: boolean;
+  team: { checkins: number; possible: number; cheers: number; bestWeek: { weekStart: string; checkins: number } | null };
+  users: UserSummary[];   // me first
+}
+```
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | `/api/summary` | `SummaryView` |
+| PUT | `/api/finish-tests/:id` | Own test only (404 otherwise). `result` ≤ 80 chars; `testedOn` within `[startDate, today]`. Returns `FinishTest`. |
+| POST | `/api/finish-tests` | Adds a test for the caller, `201 FinishTest`. Max 5 per user → 400 `too_many`. |
+| DELETE | `/api/finish-tests/:id` | Own only, `204` |
+
+Milestone job: the Day 45 push opens `/summary` instead of `/` and reads
+"Day 45 — the finish line. Together you logged 84 of 90 days. Open your summary."
+
+## Export (T16)
+
+Downloads carry `Content-Disposition: attachment; filename="hydrox45-<kind>-<today>.<ext>"`.
+Dates are `YYYY-MM-DD`; CSV uses UTF-8, `\n` line ends, RFC 4180 quoting, a header row.
+
+| Method | Path | Content |
+| --- | --- | --- |
+| GET | `/api/export.json` | `{ exportedAt, challenge, users: [{id, slug, name, kcalTarget, proteinTargetG}], goals (both users, all fields incl. inactive), checkins (both), cheers (both), healthDaily (both), bodyMetrics (caller's rows, plus the partner's when shared), finishTests (both), photos (caller's metadata only, no files) }` |
+| GET | `/api/export.csv` | Check-ins, long format: `date,day,user,goal_key,goal_label,kind,unit,value,hit` (both users, every entered row) |
+| GET | `/api/export/metrics.csv` | Caller's body metrics: `date,day,weight_kg,waist_cm,hips_cm,chest_cm,arm_cm,thigh_cm` |
+| GET | `/api/export/health.csv` | Both users: `date,day,user,steps,active_kcal` |
+
+Photo files are not bundled (no archive dependency); the Photos screen already lets you save each
+one, and the nightly backup archives the uploads directory.
