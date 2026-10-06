@@ -1,5 +1,6 @@
 import type { Db, GoalDirection, GoalKind } from './db.js';
 import { dateRange, dayNumber, isoWeekRange, maxDate, minDate } from './dates.js';
+import { computeStreak, totalCheckins, type Streak } from './streaks.js';
 
 // ---- Shared types (mirror docs/API.md) ----
 
@@ -23,12 +24,29 @@ export interface GoalView {
   weekCount: number | null;
 }
 
+export const CHEER_EMOJI = ['👏', '🔥', '💪', '❤️', '😂', '🫡'] as const;
+export type CheerEmoji = (typeof CHEER_EMOJI)[number];
+
+export interface Cheer {
+  id: number;
+  fromUserId: number;
+  toUserId: number;
+  date: string;
+  emoji: string;
+  note: string | null;
+  createdAt: string; // ISO timestamp
+}
+
 export interface UserDayView {
   id: number;
   slug: string;
   name: string;
   isMe: boolean;
   goals: GoalView[];
+  streak: Streak;
+  totalCheckins: number;
+  /** Cheers received by this user for `date`, oldest first. */
+  cheers: Cheer[];
 }
 
 export interface DayView {
@@ -125,6 +143,57 @@ async function loadCheckins(db: Db, from: string, to: string): Promise<Map<strin
   return map;
 }
 
+export function cheerView(row: {
+  id: number;
+  from_user: number;
+  to_user: number;
+  date: string;
+  emoji: string;
+  note: string | null;
+  created_at: Date;
+}): Cheer {
+  return {
+    id: row.id,
+    fromUserId: row.from_user,
+    toUserId: row.to_user,
+    date: row.date,
+    emoji: row.emoji,
+    note: row.note,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+/** Cheers about `date` for every user, oldest first. */
+async function loadCheers(db: Db, date: string): Promise<Cheer[]> {
+  const rows = await db
+    .selectFrom('cheers')
+    .select(['id', 'from_user', 'to_user', 'date', 'emoji', 'note', 'created_at'])
+    .where('date', '=', date)
+    .orderBy('created_at', 'asc')
+    .orderBy('id', 'asc')
+    .execute();
+  return rows.map(cheerView);
+}
+
+/** Per user, the set of dates in [from, to] with at least one check-in. */
+export async function loadEnteredDates(db: Db, from: string, to: string): Promise<Map<number, Set<string>>> {
+  const map = new Map<number, Set<string>>();
+  if (from > to) return map;
+  const rows = await db
+    .selectFrom('checkins')
+    .select(['user_id', 'date'])
+    .distinct()
+    .where('date', '>=', from)
+    .where('date', '<=', to)
+    .execute();
+  for (const r of rows) {
+    let set = map.get(r.user_id);
+    if (!set) map.set(r.user_id, (set = new Set()));
+    set.add(r.date);
+  }
+  return map;
+}
+
 function goalView(goal: GoalRow, value: number | null, weekCount: number | null): GoalView {
   const dailyTarget = toNumber(goal.daily_target);
   const weeklyTarget = toNumber(goal.weekly_target);
@@ -145,12 +214,14 @@ function goalView(goal: GoalRow, value: number | null, weekCount: number | null)
 
 export async function buildDayView(db: Db, meId: number, date: string, today: string): Promise<DayView> {
   const week = isoWeekRange(date);
-  const [challenge, users, goals, checkins] = await Promise.all([
+  const [challenge, users, goals, checkins, cheers] = await Promise.all([
     loadChallenge(db),
     loadUsers(db, meId),
     loadActiveGoals(db),
     loadCheckins(db, week.start, week.end),
+    loadCheers(db, date),
   ]);
+  const entered = await loadEnteredDates(db, challenge.startDate, today);
   const weekDays = dateRange(week.start, week.end);
 
   const userViews: UserDayView[] = users.map((u) => ({
@@ -158,6 +229,9 @@ export async function buildDayView(db: Db, meId: number, date: string, today: st
     slug: u.slug,
     name: u.name,
     isMe: u.id === meId,
+    streak: computeStreak(entered.get(u.id) ?? new Set(), challenge.startDate, today),
+    totalCheckins: totalCheckins(entered.get(u.id) ?? new Set(), challenge.startDate, today),
+    cheers: cheers.filter((c) => c.toUserId === u.id),
     goals: goals
       .filter((g) => g.user_id === u.id)
       .map((g) => {

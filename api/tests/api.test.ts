@@ -111,7 +111,7 @@ describe('auth', () => {
 
 describe('GET /api/today', () => {
   it('returns both users, me first, with active goals only', async () => {
-    const cookie = await login(app, 'partner');
+    const cookie = await login(app, 'agnes');
     const res = await app.inject({ method: 'GET', url: '/api/today', headers: cookieHeader(cookie) });
     expect(res.statusCode).toBe(200);
     const view = json<DayView>(res);
@@ -120,7 +120,7 @@ describe('GET /api/today', () => {
     expect(view.day).toBe(5);
     expect(view.challenge).toEqual({ name: 'Hydrox 45', startDate: '2026-10-06', lengthDays: 45 });
     expect(view.users.map((u) => [u.slug, u.isMe])).toEqual([
-      ['partner', true],
+      ['agnes', true],
       ['enes', false],
     ]);
     const enes = view.users[1]!;
@@ -138,6 +138,10 @@ describe('GET /api/today', () => {
     });
     const f45 = view.users[0]!.goals[0]!;
     expect(f45).toMatchObject({ key: 'f45', kind: 'bool', weeklyTarget: 3, value: null, hit: null, weekCount: 0 });
+    // Phase 2 fields are present with empty history.
+    expect(enes.streak).toEqual({ current: 0, best: 0, graceUsed: false });
+    expect(enes.totalCheckins).toBe(0);
+    expect(enes.cheers).toEqual([]);
   });
 
   it('day boundary: 23:59 Toronto on Oct 6 is still day 1; 00:00 is day 2', async () => {
@@ -229,9 +233,9 @@ describe('PUT /api/checkins/:date', () => {
     expect(await db.selectFrom('checkins').select('goal_id').execute()).toHaveLength(2);
 
     // Visible to the partner too
-    const partner = await login(app, 'partner');
+    const partner = await login(app, 'agnes');
     const theirs = json<DayView>(await app.inject({ method: 'GET', url: '/api/today', headers: cookieHeader(partner) }));
-    expect(theirs.users.map((u) => u.slug)).toEqual(['partner', 'enes']);
+    expect(theirs.users.map((u) => u.slug)).toEqual(['agnes', 'enes']);
     expect(goalOf(theirs, 'enes', 'protein')).toMatchObject({ value: 120, hit: false });
   });
 
@@ -262,7 +266,7 @@ describe('PUT /api/checkins/:date', () => {
     expect(res.statusCode).toBe(400);
     expect(codeOf(res)).toBe('before_start');
 
-    res = await put(cookie, '2026-10-10', [{ goalId: await goalId('partner', 'f45'), value: true }]);
+    res = await put(cookie, '2026-10-10', [{ goalId: await goalId('agnes', 'f45'), value: true }]);
     expect(res.statusCode).toBe(400);
     expect(codeOf(res)).toBe('not_your_goal');
 
@@ -311,8 +315,8 @@ describe('weekly goals', () => {
   it('weekCount counts hits in the Mon–Sun week containing the date', async () => {
     await app.close();
     app = await makeApp({ now: () => new Date('2026-10-14T16:00:00Z') }); // Wed Oct 14
-    const cookie = await login(app, 'partner');
-    const f45 = await goalId('partner', 'f45');
+    const cookie = await login(app, 'agnes');
+    const f45 = await goalId('agnes', 'f45');
 
     // Week 1 (Mon Oct 5 – Sun Oct 11): hits on Tue 6, Thu 8, Sat 10; a miss on Fri 9.
     for (const d of ['2026-10-06', '2026-10-08', '2026-10-10']) {
@@ -325,14 +329,14 @@ describe('weekly goals', () => {
     const day = async (d: string) =>
       json<DayView>(await app.inject({ method: 'GET', url: `/api/days/${d}`, headers: cookieHeader(cookie) }));
 
-    expect(goalOf(await day('2026-10-10'), 'partner', 'f45')).toMatchObject({ value: 1, hit: true, weekCount: 3, weeklyTarget: 3 });
-    expect(goalOf(await day('2026-10-09'), 'partner', 'f45')).toMatchObject({ value: 0, hit: false, weekCount: 3 });
-    expect(goalOf(await day('2026-10-11'), 'partner', 'f45')).toMatchObject({ value: null, hit: null, weekCount: 3 });
-    expect(goalOf(await day('2026-10-12'), 'partner', 'f45')).toMatchObject({ value: null, weekCount: 1 });
-    expect(goalOf(await day('2026-10-13'), 'partner', 'f45')).toMatchObject({ value: 1, weekCount: 1 });
-    expect(goalOf(await day('2026-10-14'), 'partner', 'f45')).toMatchObject({ value: null, weekCount: 1 });
+    expect(goalOf(await day('2026-10-10'), 'agnes', 'f45')).toMatchObject({ value: 1, hit: true, weekCount: 3, weeklyTarget: 3 });
+    expect(goalOf(await day('2026-10-09'), 'agnes', 'f45')).toMatchObject({ value: 0, hit: false, weekCount: 3 });
+    expect(goalOf(await day('2026-10-11'), 'agnes', 'f45')).toMatchObject({ value: null, hit: null, weekCount: 3 });
+    expect(goalOf(await day('2026-10-12'), 'agnes', 'f45')).toMatchObject({ value: null, weekCount: 1 });
+    expect(goalOf(await day('2026-10-13'), 'agnes', 'f45')).toMatchObject({ value: 1, weekCount: 1 });
+    expect(goalOf(await day('2026-10-14'), 'agnes', 'f45')).toMatchObject({ value: null, weekCount: 1 });
     // Non-weekly goals report null.
-    expect(goalOf(await day('2026-10-14'), 'partner', 'kcal').weekCount).toBeNull();
+    expect(goalOf(await day('2026-10-14'), 'agnes', 'kcal').weekCount).toBeNull();
   });
 });
 
@@ -342,8 +346,8 @@ describe('GET /api/history', () => {
     const walk = await goalId('enes', 'walk');
     const kcal = await goalId('enes', 'kcal');
     const protein = await goalId('enes', 'protein');
-    const partnerCookie = await login(app, 'partner');
-    const f45 = await goalId('partner', 'f45');
+    const partnerCookie = await login(app, 'agnes');
+    const f45 = await goalId('agnes', 'f45');
 
     await put(cookie, '2026-10-06', [
       { goalId: walk, value: true },
@@ -363,21 +367,21 @@ describe('GET /api/history', () => {
     expect(view.challenge.startDate).toBe('2026-10-06');
     expect(view.users.map((u) => [u.slug, u.isMe])).toEqual([
       ['enes', true],
-      ['partner', false],
+      ['agnes', false],
     ]);
     expect(view.days.map((d) => d.date)).toEqual(['2026-10-10', '2026-10-09', '2026-10-08', '2026-10-07', '2026-10-06']);
     expect(view.days.map((d) => d.day)).toEqual([5, 4, 3, 2, 1]);
 
     const enesId = await userId('enes');
-    const partnerId = await userId('partner');
+    const partnerId = await userId('agnes');
     const byDate = Object.fromEntries(view.days.map((d) => [d.date, d]));
     expect(byDate['2026-10-06']!.users).toEqual([
       { userId: enesId, hit: 3, total: 3, entered: true },
-      { userId: partnerId, hit: 0, total: 3, entered: false },
+      { userId: partnerId, hit: 0, total: 4, entered: false },
     ]);
     expect(byDate['2026-10-08']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 3, entered: true });
     expect(byDate['2026-10-07']!.users[0]).toEqual({ userId: enesId, hit: 0, total: 3, entered: false });
-    expect(byDate['2026-10-10']!.users[1]).toEqual({ userId: partnerId, hit: 1, total: 3, entered: true });
+    expect(byDate['2026-10-10']!.users[1]).toEqual({ userId: partnerId, hit: 1, total: 4, entered: true });
   });
 
   it('clamps from/to to [startDate, today] and validates them', async () => {
@@ -421,7 +425,7 @@ describe('seed', () => {
       return { users: Number(u.n), challenges: Number(c.n), goals: Number(g.n) };
     };
     const before = await counts();
-    expect(before).toEqual({ users: 2, challenges: 1, goals: 7 });
+    expect(before).toEqual({ users: 2, challenges: 1, goals: 8 });
     const ids = await db.selectFrom('goals').select(['id', 'key', 'user_id']).orderBy('id').execute();
     await runSeed(db);
     await runSeed(db);

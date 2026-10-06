@@ -20,6 +20,7 @@ export interface UsersTable {
   kcal_target: number | null;
   protein_target_g: number | null;
   created_at: Generated<Date>;
+  metrics_shared: Generated<boolean>;
 }
 
 export interface ChallengesTable {
@@ -65,6 +66,35 @@ export interface SetupTokensTable {
   used_at: Date | null;
 }
 
+export interface CheersTable {
+  id: Generated<number>;
+  from_user: number;
+  to_user: number;
+  date: string; // YYYY-MM-DD
+  emoji: string;
+  note: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface BodyMetricsTable {
+  user_id: number;
+  date: string; // YYYY-MM-DD
+  weight_kg: NullableNumeric;
+  waist_cm: NullableNumeric;
+  updated_at: Generated<Date>;
+}
+
+export interface PushSubscriptionsTable {
+  id: Generated<number>;
+  user_id: number;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: Generated<Date>;
+  last_error: string | null;
+  failed_at: Date | null;
+}
+
 export interface SchemaMigrationsTable {
   name: string;
   applied_at: Generated<Date>;
@@ -77,6 +107,9 @@ export interface Database {
   checkins: CheckinsTable;
   sessions: SessionsTable;
   setup_tokens: SetupTokensTable;
+  cheers: CheersTable;
+  body_metrics: BodyMetricsTable;
+  push_subscriptions: PushSubscriptionsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

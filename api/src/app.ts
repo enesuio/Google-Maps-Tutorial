@@ -5,7 +5,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
-import { z, type ZodTypeAny } from 'zod';
+import { z } from 'zod';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -15,10 +15,17 @@ import {
   findSessionUser,
   type SessionUser,
 } from './auth.js';
-import { loadConfig, type Config } from './config.js';
+import { loadConfig, vapidFromConfig, type Config } from './config.js';
 import { dateSchema, todayInToronto } from './dates.js';
 import { createDb, createPool, type Db } from './db.js';
 import { HttpError, badRequest, unauthenticated } from './errors.js';
+import { createJobs, type Jobs } from './push/queue.js';
+import { NoopSender, WebPushSender, type PushSender } from './push/sender.js';
+import { cheerRoutes } from './routes/cheers.js';
+import { me, type RouteContext } from './routes/context.js';
+import { metricsRoutes } from './routes/metrics.js';
+import { pushRoutes } from './routes/push.js';
+import { parse } from './validate.js';
 import { buildDayView, buildHistoryView, loadChallenge, type DayView } from './views.js';
 
 declare module 'fastify' {
@@ -40,19 +47,14 @@ export interface BuildAppOptions {
   /** Directory of the web build. Defaults to ../web/dist relative to the api package. */
   webDist?: string;
   logger?: boolean;
+  /** Job queue; tests pass a fake that records enqueued jobs. Defaults to BullMQ (or a disabled stub). */
+  jobs?: Jobs | undefined;
+  /** Push sender; tests pass a fake. Defaults to web-push with the configured VAPID keys. */
+  sender?: PushSender | undefined;
 }
 
 // api/src/app.ts → ../../web/dist ; api/dist/app.js → ../../web/dist
 const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
-
-function parse<T extends ZodTypeAny>(schema: T, input: unknown, what: string): z.infer<T> {
-  const result = schema.safeParse(input);
-  if (!result.success) {
-    const detail = result.error.issues.map((i) => `${i.path.join('.') || what}: ${i.message}`).join('; ');
-    throw badRequest('bad_request', `Invalid ${what}: ${detail}`);
-  }
-  return result.data;
-}
 
 const dateParams = z.object({ date: dateSchema });
 const tokenParams = z.object({ token: z.string().min(1).max(512) });
@@ -77,9 +79,21 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   const app = Fastify({ logger: opts.logger ?? !isTest(config), trustProxy: true });
 
+  // ---- Push + jobs (T7): disabled with one warning unless REDIS_URL and the VAPID keys are set ----
+  const vapid = vapidFromConfig(config);
+  const sender: PushSender = opts.sender ?? (vapid ? new WebPushSender(vapid) : new NoopSender());
+  const jobs: Jobs =
+    opts.jobs ??
+    createJobs({ db, sender, now, redisUrl: config.REDIS_URL, vapidConfigured: vapid !== null, logger: app.log });
+  const pushEnabled = vapid !== null && jobs.enabled;
+  const ctx: RouteContext = { db, config, now, jobs, sender, pushEnabled };
+
   app.decorateRequest('user', null);
   app.decorateRequest('sessionId', null);
-  if (ownsDb) app.addHook('onClose', async () => db.destroy());
+  app.addHook('onClose', async () => {
+    if (!opts.jobs) await jobs.close();
+    if (ownsDb) await db.destroy();
+  });
 
   await app.register(fastifyCookie, { secret: config.SESSION_SECRET });
 
@@ -146,11 +160,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         req.sessionId = unsigned.value;
       });
 
-      const me = (req: FastifyRequest): SessionUser => {
-        if (!req.user) throw unauthenticated();
-        return req.user;
-      };
-
       api.post('/logout', async (req, reply) => {
         if (req.sessionId) await deleteSession(db, req.sessionId);
         reply.clearCookie(SESSION_COOKIE, { path: '/' });
@@ -194,7 +203,18 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         const bad = body.entries.find((e) => !allowed.has(e.goalId));
         if (bad) throw badRequest('not_your_goal', `Goal ${bad.goalId} is not one of your active goals.`);
 
-        await db.transaction().execute(async (trx) => {
+        const countEntries = async (q: Db) => {
+          const row = await q
+            .selectFrom('checkins')
+            .select(sql<string>`count(*)`.as('n'))
+            .where('user_id', '=', user.id)
+            .where('date', '=', date)
+            .executeTakeFirstOrThrow();
+          return Number(row.n);
+        };
+
+        const { before, after } = await db.transaction().execute(async (trx) => {
+          const before = await countEntries(trx);
           for (const entry of body.entries) {
             if (entry.value === null) {
               await trx
@@ -214,7 +234,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
               )
               .execute();
           }
+          return { before, after: await countEntries(trx) };
         });
+
+        // First entry of today → tell the partner (never for backfills or later edits).
+        if (date === today && before === 0 && after > 0) {
+          await jobs.enqueue('partner-checkin', { userId: user.id, date });
+        }
 
         const view: DayView = await buildDayView(db, user.id, date, today);
         return view;
@@ -224,6 +250,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         const query = parse(historyQuery, req.query, 'query');
         return buildHistoryView(db, me(req).id, todayInToronto(now()), query);
       });
+
+      await cheerRoutes(api, ctx);
+      await metricsRoutes(api, ctx);
+      await pushRoutes(api, ctx);
     },
     { prefix: '/api' },
   );
@@ -233,6 +263,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const serveStatic = (opts.serveStatic ?? isProd) && existsSync(path.join(webDist, 'index.html'));
   if (serveStatic) {
     await app.register(fastifyStatic, { root: webDist, prefix: '/', wildcard: true });
+    // PWA files (T6). @fastify/static applies `send`'s headers after `setHeaders`, so these two get
+    // their own routes: the service worker must never be cached (updates apply on next open) and
+    // the manifest needs its own MIME type. A static route beats the `/*` wildcard regardless of order.
+    app.get('/sw.js', (_req, reply) =>
+      reply.header('cache-control', 'no-cache').sendFile('sw.js', { cacheControl: false }),
+    );
+    app.get('/manifest.webmanifest', (_req, reply) =>
+      reply.type('application/manifest+json; charset=utf-8').sendFile('manifest.webmanifest'),
+    );
   } else if (opts.serveStatic ?? isProd) {
     app.log.warn({ dir: webDist }, 'web/dist not found; static files are not served');
   }
@@ -241,7 +280,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     if (req.url.startsWith('/api/') || req.url === '/api') {
       return reply.status(404).send({ error: { code: 'not_found', message: `No route ${req.method} ${req.url}` } });
     }
-    if (serveStatic && req.method === 'GET') {
+    // SPA fallback for client routes only: a missing file (anything with an extension, e.g. a
+    // stale /assets/*.js, /sw.js or /manifest.webmanifest) is a real 404, never index.html.
+    if (serveStatic && req.method === 'GET' && !looksLikeFile(req.url)) {
       return reply.sendFile('index.html');
     }
     return reply
@@ -251,6 +292,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   return app;
+}
+
+function looksLikeFile(url: string): boolean {
+  const pathname = url.split('?')[0] ?? url;
+  const last = pathname.split('/').pop() ?? '';
+  return last.includes('.');
 }
 
 function isTest(config: Config): boolean {

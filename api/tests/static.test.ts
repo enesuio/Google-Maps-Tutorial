@@ -15,6 +15,8 @@ beforeAll(async () => {
   mkdirSync(path.join(dir, 'assets'));
   writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>Hydrox</title><div id="root"></div>');
   writeFileSync(path.join(dir, 'assets', 'app.js'), 'console.log("hi")');
+  writeFileSync(path.join(dir, 'manifest.webmanifest'), JSON.stringify({ name: 'Hydrox 45', display: 'standalone' }));
+  writeFileSync(path.join(dir, 'sw.js'), 'self.addEventListener("push", () => {})');
   app = await makeApp({ serveStatic: true, webDist: dir, now: () => new Date('2026-10-10T16:00:00Z') });
 });
 
@@ -50,6 +52,26 @@ describe('static web build', () => {
 
     const health = await app.inject({ method: 'GET', url: '/health' });
     expect(health.statusCode).toBe(200);
+  });
+
+  it('serves the PWA manifest and service worker with the right headers', async () => {
+    const manifest = await app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.headers['content-type']).toContain('application/manifest+json');
+    expect(JSON.parse(manifest.body)).toMatchObject({ name: 'Hydrox 45' });
+
+    const sw = await app.inject({ method: 'GET', url: '/sw.js' });
+    expect(sw.statusCode).toBe(200);
+    expect(sw.headers['content-type']).toContain('javascript');
+    expect(sw.headers['cache-control']).toBe('no-cache');
+    expect(sw.body).toContain('addEventListener');
+
+    // Other files keep their normal caching, and a missing file is a 404, not the SPA shell.
+    const asset = await app.inject({ method: 'GET', url: '/assets/app.js' });
+    expect(asset.headers['cache-control']).not.toBe('no-cache');
+    const missing = await app.inject({ method: 'GET', url: '/assets/gone.js' });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.body).not.toContain('id="root"');
   });
 
   it('starts without a web build', async () => {

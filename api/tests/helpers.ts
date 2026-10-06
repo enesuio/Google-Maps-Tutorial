@@ -4,6 +4,9 @@ import { createSetupToken } from '../src/auth.js';
 import { buildApp, type BuildAppOptions } from '../src/app.js';
 import { createDb, createPool, type Db } from '../src/db.js';
 import { runMigrations } from '../src/migrate.js';
+import type { JobData, JobName } from '../src/push/jobs.js';
+import type { Jobs } from '../src/push/queue.js';
+import { PushSendError, type PushPayload, type PushSender, type PushSubscriptionKeys } from '../src/push/sender.js';
 import { runSeed } from '../src/seed.js';
 
 export const TEST_DATABASE_URL =
@@ -25,7 +28,7 @@ export async function migrateOnce(): Promise<void> {
 
 /** Empties every table (ids restart at 1) and re-seeds. */
 export async function resetDb(): Promise<void> {
-  await sql`truncate table checkins, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
+  await sql`truncate table checkins, cheers, body_metrics, push_subscriptions, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
     db,
   );
   await runSeed(db);
@@ -35,9 +38,78 @@ export async function closeDb(): Promise<void> {
   await db.destroy();
 }
 
-export async function makeApp(opts: Omit<BuildAppOptions, 'db' | 'config'> & { config?: Partial<typeof TEST_ENV> } = {}) {
-  return buildApp({ ...opts, db, config: { ...TEST_ENV, ...(opts.config ?? {}) }, logger: false });
+export interface EnqueuedJob {
+  name: JobName;
+  data: JobData[JobName];
 }
+
+/** In-memory stand-in for the BullMQ queue: records what the app enqueues. */
+export interface FakeJobs extends Jobs {
+  enqueued: EnqueuedJob[];
+}
+
+export function fakeJobs(): FakeJobs {
+  const enqueued: EnqueuedJob[] = [];
+  return {
+    enabled: true,
+    enqueued,
+    async enqueue(name, data) {
+      enqueued.push({ name, data });
+    },
+    async close() {},
+  };
+}
+
+export interface SentPush {
+  endpoint: string;
+  payload: PushPayload;
+}
+
+/** Records every send; `failWith` makes sends to matching endpoints throw (e.g. a 410). */
+export class FakeSender implements PushSender {
+  sent: SentPush[] = [];
+  failWith = new Map<string, Error>();
+
+  async send(sub: PushSubscriptionKeys, payload: PushPayload): Promise<void> {
+    const err = this.failWith.get(sub.endpoint);
+    if (err) throw err;
+    this.sent.push({ endpoint: sub.endpoint, payload });
+  }
+
+  failStatus(endpoint: string, statusCode: number): void {
+    this.failWith.set(endpoint, new PushSendError(statusCode, `push service answered ${statusCode}`));
+  }
+}
+
+export const FAKE_VAPID = {
+  VAPID_PUBLIC_KEY: 'test-public-key',
+  VAPID_PRIVATE_KEY: 'test-private-key',
+  VAPID_SUBJECT: 'mailto:test@example.com',
+};
+
+type AppConfig = Partial<typeof TEST_ENV & typeof FAKE_VAPID & { REDIS_URL: string }>;
+
+/**
+ * Builds the app on the shared test DB. Unless `jobs` is given, a fresh fake queue is injected so no
+ * Redis is touched (read it back from `app.jobs`). Pass `jobs: undefined` explicitly to exercise
+ * the real `createJobs` (disabled stub when VAPID is absent).
+ */
+export async function makeApp(opts: Omit<BuildAppOptions, 'db' | 'config'> & { config?: AppConfig } = {}) {
+  const jobs = 'jobs' in opts ? opts.jobs : fakeJobs();
+  const app = await buildApp({
+    ...opts,
+    ...(jobs ? { jobs } : {}),
+    db,
+    config: { ...TEST_ENV, ...(opts.config ?? {}) },
+    logger: false,
+  });
+  return Object.assign(app, { jobs: jobs as FakeJobs | undefined });
+}
+
+export const subscription = (endpoint: string): PushSubscriptionKeys => ({
+  endpoint,
+  keys: { p256dh: 'p256dh-' + endpoint.slice(-8), auth: 'auth-' + endpoint.slice(-8) },
+});
 
 export async function userId(slug: string): Promise<number> {
   const row = await db.selectFrom('users').select('id').where('slug', '=', slug).executeTakeFirstOrThrow();
