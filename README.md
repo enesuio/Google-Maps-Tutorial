@@ -36,7 +36,7 @@ Checks: `pnpm typecheck`, `pnpm test` (API tests need `TEST_DATABASE_URL`, defau
 ```sh
 docker compose up -d --build    # migrates, seeds, serves on :3000
 docker compose exec app node api/dist/cli/setup-link.js enes
-docker compose exec app node api/dist/cli/setup-link.js partner
+docker compose exec app node api/dist/cli/setup-link.js agnes
 ```
 
 Send each person their link. Opening it once on their phone signs them in for a year.

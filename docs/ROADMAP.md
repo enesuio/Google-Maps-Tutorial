@@ -141,6 +141,6 @@ The biggest risk is the app becoming the project instead of the challenge.
 | iPhone push doesn't arrive | Must be installed to home screen; test on both phones in Phase 2 |
 
 - [ ] What does her studio's Hydrox challenge actually track or score (for example, InBody scans, before/after photos, class count)? Mirror that in her goals.
-- [ ] Which 3 to 5 daily goals does she want?
+- [ ] Which 3 to 5 daily goals does she want? Answer: she has no fixed targets beyond losing fat, so the seed uses consistency goals: F45 class (3 a week), calories at most 1,500 kcal, protein at least 130 g, and a daily push-up/pull-up practice toggle. Finish-line test on Day 45: 3 push-ups and 1 pull-up (she can do neither today); recorded once in the Day 45 summary (T15), not tracked daily. In the app she is "Agnes" (an inside joke; her name is Nur).
 - [ ] Does she use an iPhone and an Apple Watch? This decides whether the Health import is worth building for her. Answer: she uses both, so it gets built for both of you.
 - [ ] Should weight be private by default or shared between you? Answer: shared.

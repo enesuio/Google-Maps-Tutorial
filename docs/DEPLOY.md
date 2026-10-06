@@ -38,7 +38,7 @@ No port forwarding; works with a dynamic home IP.
 
 ```sh
 docker compose exec app node api/dist/cli/setup-link.js enes
-docker compose exec app node api/dist/cli/setup-link.js partner
+docker compose exec app node api/dist/cli/setup-link.js agnes
 ```
 
 Each link works once and sets a 1-year cookie. Generate a new one if a phone is replaced.

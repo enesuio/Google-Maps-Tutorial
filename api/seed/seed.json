@@ -1,5 +1,9 @@
 {
-  "challenge": { "name": "Hydrox 45", "startDate": "2026-10-06", "lengthDays": 45 },
+  "challenge": {
+    "name": "Hydrox 45",
+    "startDate": "2026-10-06",
+    "lengthDays": 45
+  },
   "users": [
     {
       "slug": "enes",
@@ -7,21 +11,76 @@
       "kcalTarget": 1600,
       "proteinTargetG": 160,
       "goals": [
-        { "key": "walk", "label": "Daily walk", "kind": "bool", "sort": 1 },
-        { "key": "kcal", "label": "Calories", "kind": "number", "unit": "kcal", "direction": "at_most", "dailyTarget": 1600, "sort": 2 },
-        { "key": "protein", "label": "Protein", "kind": "number", "unit": "g", "direction": "at_least", "dailyTarget": 160, "sort": 3 },
-        { "key": "strength", "label": "Strength training", "kind": "bool", "sort": 4, "active": false }
+        {
+          "key": "walk",
+          "label": "Daily walk",
+          "kind": "bool",
+          "sort": 1
+        },
+        {
+          "key": "kcal",
+          "label": "Calories",
+          "kind": "number",
+          "unit": "kcal",
+          "direction": "at_most",
+          "dailyTarget": 1600,
+          "sort": 2
+        },
+        {
+          "key": "protein",
+          "label": "Protein",
+          "kind": "number",
+          "unit": "g",
+          "direction": "at_least",
+          "dailyTarget": 160,
+          "sort": 3
+        },
+        {
+          "key": "strength",
+          "label": "Strength training",
+          "kind": "bool",
+          "sort": 4,
+          "active": false
+        }
       ]
     },
     {
-      "slug": "partner",
-      "name": "Partner",
+      "slug": "agnes",
+      "name": "Agnes",
       "kcalTarget": 1500,
       "proteinTargetG": 130,
       "goals": [
-        { "key": "f45", "label": "F45 class", "kind": "bool", "weeklyTarget": 3, "sort": 1 },
-        { "key": "kcal", "label": "Calories", "kind": "number", "unit": "kcal", "direction": "at_most", "dailyTarget": 1500, "sort": 2 },
-        { "key": "protein", "label": "Protein", "kind": "number", "unit": "g", "direction": "at_least", "dailyTarget": 130, "sort": 3 }
+        {
+          "key": "f45",
+          "label": "F45 class",
+          "kind": "bool",
+          "weeklyTarget": 3,
+          "sort": 1
+        },
+        {
+          "key": "kcal",
+          "label": "Calories",
+          "kind": "number",
+          "unit": "kcal",
+          "direction": "at_most",
+          "dailyTarget": 1500,
+          "sort": 2
+        },
+        {
+          "key": "protein",
+          "label": "Protein",
+          "kind": "number",
+          "unit": "g",
+          "direction": "at_least",
+          "dailyTarget": 130,
+          "sort": 3
+        },
+        {
+          "key": "practice",
+          "label": "Push-up & pull-up practice",
+          "kind": "bool",
+          "sort": 4
+        }
       ]
     }
   ]
