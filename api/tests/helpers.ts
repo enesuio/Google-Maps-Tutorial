@@ -28,7 +28,7 @@ export async function migrateOnce(): Promise<void> {
 
 /** Empties every table (ids restart at 1) and re-seeds. */
 export async function resetDb(): Promise<void> {
-  await sql`truncate table checkins, cheers, body_metrics, health_daily, import_tokens, photos, push_subscriptions, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
+  await sql`truncate table checkins, cheers, body_metrics, health_daily, import_tokens, photos, finish_tests, push_subscriptions, sessions, setup_tokens, goals, challenges, users restart identity cascade`.execute(
     db,
   );
   await runSeed(db);

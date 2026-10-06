@@ -1,7 +1,7 @@
 import { addDays, dayNumber, todayInToronto } from '../dates.js';
 import type { Db } from '../db.js';
 import { buildRecap, challengeEndDate, recapPushBody, weekStartOf } from '../recap.js';
-import { MILESTONES, buildTeamView, milestonePushBody } from '../team.js';
+import { MILESTONES, buildTeamView, finishLinePushBody, milestonePushBody } from '../team.js';
 import { loadChallenge } from '../views.js';
 import type { PushPayload, PushSender } from './sender.js';
 import { hasSubscription, sendToUser } from './subscriptions.js';
@@ -117,6 +117,7 @@ export async function handleWeeklyRecap(db: Db, sender: PushSender, now: Date): 
 /**
  * 09:00 Toronto daily: on day 7, 15, 30 or 45 every subscribed user hears how far the team got
  * ("Day 7 — one week in. Together you've logged 13 of 14 days."). Silent on every other day.
+ * The last day opens the summary instead of the home screen (T15).
  */
 export async function handleMilestone(db: Db, sender: PushSender, now: Date): Promise<void> {
   const today = todayInToronto(now);
@@ -129,10 +130,12 @@ export async function handleMilestone(db: Db, sender: PushSender, now: Date): Pr
   const first = users[0];
   if (!first) return;
   const team = await buildTeamView(db, first.id, today);
+  const possible = users.length * day;
+  const finish = day === challenge.lengthDays;
   const payload: PushPayload = {
     title: APP_TITLE,
-    body: milestonePushBody(day, milestone.phrase, team.ring.done, users.length * day),
-    url: '/',
+    body: finish ? finishLinePushBody(day, team.ring.done, possible) : milestonePushBody(day, milestone.phrase, team.ring.done, possible),
+    url: finish ? '/summary' : '/',
     tag: `milestone-${day}`,
   };
   for (const user of users) await sendToUser(db, sender, user.id, payload);

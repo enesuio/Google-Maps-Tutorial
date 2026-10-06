@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { handleMilestone, runJob } from '../src/push/jobs.js';
 import { upsertSubscription } from '../src/push/subscriptions.js';
-import { milestonePushBody, milestonesFor, type TeamView } from '../src/team.js';
+import { finishLinePushBody, milestonePushBody, milestonesFor, type TeamView } from '../src/team.js';
 import { FakeSender, closeDb, cookieHeader, db, goalId, login, makeApp, migrateOnce, resetDb, subscription, userId } from './helpers.js';
 
 // Tuesday Oct 20 2026 → challenge day 15 (a milestone day).
@@ -118,11 +118,23 @@ describe('milestone job', () => {
     await handleMilestone(db, sender, new Date('2026-10-05T13:00:00Z')); // day 0
     expect(sender.sent).toEqual([]);
 
-    // Day 15 (today in this file): 8 of 30. Day 45: the finish line, out of 90.
+    // Day 15 (today in this file): 8 of 30, still opening the home screen.
     await handleMilestone(db, sender, NOW());
-    expect(sender.sent[0]!.payload).toMatchObject({ body: "Day 15 — a third in. Together you've logged 8 of 30 days.", tag: 'milestone-15' });
+    expect(sender.sent[0]!.payload).toMatchObject({ body: "Day 15 — a third in. Together you've logged 8 of 30 days.", url: '/', tag: 'milestone-15' });
+    sender.sent = [];
+    await handleMilestone(db, sender, new Date('2026-11-04T14:00:00Z')); // day 30
+    expect(sender.sent[0]!.payload).toMatchObject({ body: "Day 30 — two thirds in. Together you've logged 8 of 60 days.", url: '/', tag: 'milestone-30' });
+
+    // Day 45: the finish line, out of 90, opening the summary (T15).
     sender.sent = [];
     await handleMilestone(db, sender, new Date('2026-11-19T14:00:00Z'));
-    expect(sender.sent[0]!.payload).toMatchObject({ body: "Day 45 — the finish line. Together you've logged 8 of 90 days.", tag: 'milestone-45' });
+    expect(sender.sent).toHaveLength(3);
+    expect(sender.sent[0]!.payload).toEqual({
+      title: 'Hydrox 45',
+      body: 'Day 45 — the finish line. Together you logged 8 of 90 days. Open your summary.',
+      url: '/summary',
+      tag: 'milestone-45',
+    });
+    expect(finishLinePushBody(45, 84, 90)).toBe('Day 45 — the finish line. Together you logged 84 of 90 days. Open your summary.');
   });
 });

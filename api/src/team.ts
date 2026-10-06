@@ -66,3 +66,8 @@ export async function buildTeamView(db: Db, meUserId: number, today: string): Pr
 export function milestonePushBody(day: number, phrase: string, done: number, possible: number): string {
   return `Day ${day} — ${phrase}. Together you've logged ${done} of ${possible} days.`;
 }
+
+/** The last day: "Day 45 — the finish line. Together you logged 84 of 90 days. Open your summary." */
+export function finishLinePushBody(day: number, done: number, possible: number): string {
+  return `Day ${day} — the finish line. Together you logged ${done} of ${possible} days. Open your summary.`;
+}

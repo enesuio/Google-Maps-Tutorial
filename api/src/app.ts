@@ -25,11 +25,13 @@ import { createJobs, type Jobs } from './push/queue.js';
 import { NoopSender, WebPushSender, type PushSender } from './push/sender.js';
 import { cheerRoutes } from './routes/cheers.js';
 import { me, type RouteContext } from './routes/context.js';
+import { exportRoutes } from './routes/export.js';
 import { importIngestRoute, importRoutes } from './routes/import.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { photoRoutes } from './routes/photos.js';
 import { pushRoutes } from './routes/push.js';
 import { recapRoutes } from './routes/recap.js';
+import { summaryRoutes } from './routes/summary.js';
 import { teamRoutes } from './routes/team.js';
 import { parse } from './validate.js';
 import { buildDayView, buildHistoryView, loadChallenge, type DayView } from './views.js';
@@ -239,6 +241,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       await recapRoutes(api, ctx);
       await teamRoutes(api, ctx);
       await photoRoutes(api, ctx);
+      await summaryRoutes(api, ctx);
+      await exportRoutes(api, ctx);
     },
     { prefix: '/api' },
   );

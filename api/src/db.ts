@@ -134,6 +134,19 @@ export interface PhotosTable {
   created_at: Generated<Date>;
 }
 
+/** Finish-line tests (T15): recorded once in the Day 45 summary, never tracked daily. */
+export interface FinishTestsTable {
+  id: Generated<number>;
+  user_id: number;
+  key: string;
+  label: string;
+  /** null = not tested yet */
+  passed: boolean | null;
+  result: string | null;
+  tested_on: string | null; // YYYY-MM-DD
+  updated_at: Generated<Date>;
+}
+
 export interface SchemaMigrationsTable {
   name: string;
   applied_at: Generated<Date>;
@@ -152,6 +165,7 @@ export interface Database {
   health_daily: HealthDailyTable;
   import_tokens: ImportTokensTable;
   photos: PhotosTable;
+  finish_tests: FinishTestsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 
