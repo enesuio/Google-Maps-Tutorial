@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hydrox
+      POSTGRES_PASSWORD: hydrox
+      POSTGRES_DB: hydrox
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hydrox -d hydrox"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://hydrox:hydrox@db:5432/hydrox
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      TZ: America/Toronto
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads:/app/uploads
+    # Runs migrations and the idempotent seed, then starts the server.
+    command: ["sh", "-c", "node api/dist/cli/migrate.js && node api/dist/cli/seed.js && node api/dist/server.js"]
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
